@@ -1,7 +1,7 @@
 ## @file
 # This file is used to create a database used by build tool
 #
-# Copyright (c) 2008 - 2019, Intel Corporation. All rights reserved.<BR>
+# Copyright (c) 2008 - 2020, Intel Corporation. All rights reserved.<BR>
 # (C) Copyright 2016 Hewlett Packard Enterprise Development LP<BR>
 # SPDX-License-Identifier: BSD-2-Clause-Patent
 #
@@ -19,8 +19,8 @@ from Common.Misc import *
 from types import *
 from Common.Expression import *
 from CommonDataClass.CommonClass import SkuInfoClass
-from Common.TargetTxtClassObject import TargetTxt
-from Common.ToolDefClassObject import ToolDef
+from Common.TargetTxtClassObject import TargetTxtDict
+from Common.ToolDefClassObject import ToolDefDict
 from .MetaDataTable import *
 from .MetaFileTable import *
 from .MetaFileParser import *
@@ -719,6 +719,24 @@ class DscBuildData(PlatformBuildClassObject):
                 self._RawData.DisableOverrideComponent(Components[(file_guid_str,str(ModuleFile))])
             Components[(file_guid_str,str(ModuleFile))] = ModuleId
         self._RawData._PostProcessed = False
+
+    ## Retrieve packages this Platform depends on
+    @cached_property
+    def Packages(self):
+        RetVal = set()
+        RecordList = self._RawData[MODEL_META_DATA_PACKAGE, self._Arch]
+        Macros = self._Macros
+        for Record in RecordList:
+            File = PathClass(NormPath(Record[0], Macros), GlobalData.gWorkspace, Arch=self._Arch)
+            # check the file validation
+            ErrorCode, ErrorInfo = File.Validate('.dec')
+            if ErrorCode != 0:
+                LineNo = Record[-1]
+                EdkLogger.error('build', ErrorCode, ExtraData=ErrorInfo, File=self.MetaFile, Line=LineNo)
+            # parse this package now. we need it to get protocol/ppi/guid value
+            RetVal.add(self._Bdb[File, self._Arch, self._Target, self._Toolchain])
+        return RetVal
+
     ## Retrieve [Components] section information
     @property
     def Modules(self):
@@ -896,7 +914,8 @@ class DscBuildData(PlatformBuildClassObject):
                     continue
                 ModuleData = self._Bdb[ModuleFile, self._Arch, self._Target, self._Toolchain]
                 PkgSet.update(ModuleData.Packages)
-
+            if self.Packages:
+                PkgSet.update(self.Packages)
             self._DecPcds, self._GuidDict = GetDeclaredPcd(self, self._Bdb, self._Arch, self._Target, self._Toolchain, PkgSet)
             self._GuidDict.update(GlobalData.gPlatformPcds)
 
@@ -2648,6 +2667,22 @@ class DscBuildData(PlatformBuildClassObject):
             for pkg in PcdDependDEC:
                 if pkg in PlatformInc:
                     for inc in PlatformInc[pkg]:
+                        #
+                        # Get list of files in potential -I include path
+                        #
+                        FileList = os.listdir (str(inc))
+                        #
+                        # Skip -I include path if one of the include files required
+                        # by PcdValueInit.c are present in the include paths from
+                        # the DEC file.  PcdValueInit.c must use the standard include
+                        # files from the host compiler.
+                        #
+                        if 'stdio.h' in FileList:
+                          continue
+                        if 'stdlib.h' in FileList:
+                          continue
+                        if 'string.h' in FileList:
+                          continue
                         MakeApp += '-I'  + str(inc) + ' '
                         IncSearchList.append(inc)
         MakeApp = MakeApp + '\n'
@@ -3277,6 +3312,8 @@ class DscBuildData(PlatformBuildClassObject):
     @property
     def ToolChainFamily(self):
         self._ToolChainFamily = TAB_COMPILER_MSFT
+        TargetObj = TargetTxtDict()
+        TargetTxt = TargetObj.Target
         BuildConfigurationFile = os.path.normpath(os.path.join(GlobalData.gConfDirectory, "target.txt"))
         if os.path.isfile(BuildConfigurationFile) == True:
             ToolDefinitionFile = TargetTxt.TargetTxtDictionary[DataType.TAB_TAT_DEFINES_TOOL_CHAIN_CONF]
@@ -3284,7 +3321,8 @@ class DscBuildData(PlatformBuildClassObject):
                 ToolDefinitionFile = "tools_def.txt"
                 ToolDefinitionFile = os.path.normpath(mws.join(self.WorkspaceDir, 'Conf', ToolDefinitionFile))
             if os.path.isfile(ToolDefinitionFile) == True:
-                ToolDefinition = ToolDef.ToolsDefTxtDatabase
+                ToolDefObj = ToolDefDict((os.path.join(os.getenv("WORKSPACE"), "Conf")))
+                ToolDefinition = ToolDefObj.ToolDef.ToolsDefTxtDatabase
                 if TAB_TOD_DEFINES_FAMILY not in ToolDefinition \
                    or self._Toolchain not in ToolDefinition[TAB_TOD_DEFINES_FAMILY] \
                    or not ToolDefinition[TAB_TOD_DEFINES_FAMILY][self._Toolchain]:
@@ -3320,6 +3358,8 @@ class DscBuildData(PlatformBuildClassObject):
                     continue
                 ModuleData = self._Bdb[ModuleFile, self._Arch, self._Target, self._Toolchain]
                 PkgSet.update(ModuleData.Packages)
+            if self.Packages:
+                PkgSet.update(self.Packages)
             self._DecPcds, self._GuidDict = GetDeclaredPcd(self, self._Bdb, self._Arch, self._Target, self._Toolchain, PkgSet)
             self._GuidDict.update(GlobalData.gPlatformPcds)
         return self._DecPcds

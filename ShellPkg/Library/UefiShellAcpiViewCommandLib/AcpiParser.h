@@ -185,6 +185,22 @@ Dump8Chars (
   );
 
 /**
+  This function traces 12 characters which can be optionally
+  formated using the format string if specified.
+
+  If no format string is specified the Format must be NULL.
+
+  @param [in] Format  Optional format string for tracing the data.
+  @param [in] Ptr     Pointer to the start of the buffer.
+**/
+VOID
+EFIAPI
+Dump12Chars (
+  IN CONST CHAR16* Format OPTIONAL,
+  IN       UINT8*  Ptr
+  );
+
+/**
   This function indents and prints the ACPI table Field Name.
 
   @param [in] Indent      Number of spaces to add to the global table
@@ -522,6 +538,27 @@ ParseAcpiDbg2 (
 VOID
 EFIAPI
 ParseAcpiDsdt (
+  IN BOOLEAN Trace,
+  IN UINT8*  Ptr,
+  IN UINT32  AcpiTableLength,
+  IN UINT8   AcpiTableRevision
+  );
+
+/**
+  This function parses the ACPI FACS table.
+  When trace is enabled this function parses the FACS table and
+  traces the ACPI table fields.
+
+  This function also performs validation of the ACPI table fields.
+
+  @param [in] Trace              If TRUE, trace the ACPI fields.
+  @param [in] Ptr                Pointer to the start of the buffer.
+  @param [in] AcpiTableLength    Length of the ACPI table.
+  @param [in] AcpiTableRevision  Revision of the ACPI table.
+**/
+VOID
+EFIAPI
+ParseAcpiFacs (
   IN BOOLEAN Trace,
   IN UINT8*  Ptr,
   IN UINT32  AcpiTableLength,

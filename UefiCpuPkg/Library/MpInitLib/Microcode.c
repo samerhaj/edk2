@@ -1,7 +1,7 @@
 /** @file
   Implementation of loading microcode on processors.
 
-  Copyright (c) 2015 - 2019, Intel Corporation. All rights reserved.<BR>
+  Copyright (c) 2015 - 2020, Intel Corporation. All rights reserved.<BR>
   SPDX-License-Identifier: BSD-2-Clause-Patent
 
 **/
@@ -65,13 +65,15 @@ GetCurrentMicrocodeSignature (
          It does not guarantee that the data has not been modified.
          CPU has its own mechanism to verify Microcode Binary part.
 
-  @param[in]  CpuMpData    The pointer to CPU MP Data structure.
-  @param[in]  IsBspCallIn  Indicate whether the caller is BSP or not.
+  @param[in]  CpuMpData        The pointer to CPU MP Data structure.
+  @param[in]  ProcessorNumber  The handle number of the processor. The range is
+                               from 0 to the total number of logical processors
+                               minus 1.
 **/
 VOID
 MicrocodeDetect (
   IN CPU_MP_DATA             *CpuMpData,
-  IN BOOLEAN                 IsBspCallIn
+  IN UINTN                   ProcessorNumber
   )
 {
   UINT32                                  ExtendedTableLength;
@@ -83,6 +85,7 @@ MicrocodeDetect (
   UINTN                                   Index;
   UINT8                                   PlatformId;
   CPUID_VERSION_INFO_EAX                  Eax;
+  CPU_AP_DATA                             *CpuData;
   UINT32                                  CurrentRevision;
   UINT32                                  LatestRevision;
   UINTN                                   TotalSize;
@@ -91,13 +94,8 @@ MicrocodeDetect (
   BOOLEAN                                 CorrectMicrocode;
   VOID                                    *MicrocodeData;
   MSR_IA32_PLATFORM_ID_REGISTER           PlatformIdMsr;
-  UINT32                                  ProcessorFlags;
   UINT32                                  ThreadId;
-
-  //
-  // set ProcessorFlags to suppress incorrect compiler/analyzer warnings
-  //
-  ProcessorFlags = 0;
+  BOOLEAN                                 IsBspCallIn;
 
   if (CpuMpData->MicrocodePatchRegionSize == 0) {
     //
@@ -107,12 +105,7 @@ MicrocodeDetect (
   }
 
   CurrentRevision = GetCurrentMicrocodeSignature ();
-  if (CurrentRevision != 0 && !IsBspCallIn) {
-    //
-    // Skip loading microcode if it has been loaded successfully
-    //
-    return;
-  }
+  IsBspCallIn     = (ProcessorNumber == (UINTN)CpuMpData->BspNumber) ? TRUE : FALSE;
 
   GetProcessorLocationByApicId (GetInitialApicId (), NULL, NULL, &ThreadId);
   if (ThreadId != 0) {
@@ -135,16 +128,23 @@ MicrocodeDetect (
   PlatformIdMsr.Uint64 = AsmReadMsr64 (MSR_IA32_PLATFORM_ID);
   PlatformId = (UINT8) PlatformIdMsr.Bits.PlatformId;
 
+
   //
   // Check whether AP has same processor with BSP.
   // If yes, direct use microcode info saved by BSP.
   //
   if (!IsBspCallIn) {
-    if ((CpuMpData->ProcessorSignature == Eax.Uint32) &&
-        (CpuMpData->ProcessorFlags & (1 << PlatformId)) != 0) {
-        MicrocodeData = (VOID *)(UINTN) CpuMpData->MicrocodeDataAddress;
-        LatestRevision = CpuMpData->MicrocodeRevision;
-        goto Done;
+    //
+    // Get the CPU data for BSP
+    //
+    CpuData = &(CpuMpData->CpuData[CpuMpData->BspNumber]);
+    if ((CpuData->ProcessorSignature == Eax.Uint32) &&
+        (CpuData->PlatformId == PlatformId) &&
+        (CpuData->MicrocodeEntryAddr != 0)) {
+      MicrocodeEntryPoint = (CPU_MICROCODE_HEADER *)(UINTN) CpuData->MicrocodeEntryAddr;
+      MicrocodeData       = (VOID *) (MicrocodeEntryPoint + 1);
+      LatestRevision      = MicrocodeEntryPoint->UpdateRevision;
+      goto Done;
     }
   }
 
@@ -212,7 +212,6 @@ MicrocodeDetect (
         CheckSum32 += MicrocodeEntryPoint->Checksum;
         if (CheckSum32 == 0) {
           CorrectMicrocode = TRUE;
-          ProcessorFlags = MicrocodeEntryPoint->ProcessorFlags;
         }
       } else if ((MicrocodeEntryPoint->DataSize != 0) &&
                  (MicrocodeEntryPoint->UpdateRevision > LatestRevision)) {
@@ -256,7 +255,6 @@ MicrocodeDetect (
                     // Find one
                     //
                     CorrectMicrocode = TRUE;
-                    ProcessorFlags = ExtendedTable->ProcessorFlag;
                     break;
                   }
                 }
@@ -295,6 +293,16 @@ MicrocodeDetect (
   } while (((UINTN) MicrocodeEntryPoint < MicrocodeEnd));
 
 Done:
+  if (LatestRevision != 0) {
+    //
+    // Save the detected microcode patch entry address (including the
+    // microcode patch header) for each processor.
+    // It will be used when building the microcode patch cache HOB.
+    //
+    CpuMpData->CpuData[ProcessorNumber].MicrocodeEntryAddr =
+      (UINTN) MicrocodeData -  sizeof (CPU_MICROCODE_HEADER);
+  }
+
   if (LatestRevision > CurrentRevision) {
     //
     // BIOS only authenticate updates that contain a numerically larger revision
@@ -318,16 +326,416 @@ Done:
       ReleaseSpinLock(&CpuMpData->MpLock);
     }
   }
+}
 
-  if (IsBspCallIn && (LatestRevision != 0)) {
+/**
+  Determine if a microcode patch matchs the specific processor signature and flag.
+
+  @param[in]  CpuMpData             The pointer to CPU MP Data structure.
+  @param[in]  ProcessorSignature    The processor signature field value
+                                    supported by a microcode patch.
+  @param[in]  ProcessorFlags        The prcessor flags field value supported by
+                                    a microcode patch.
+
+  @retval TRUE     The specified microcode patch will be loaded.
+  @retval FALSE    The specified microcode patch will not be loaded.
+**/
+BOOLEAN
+IsProcessorMatchedMicrocodePatch (
+  IN CPU_MP_DATA                 *CpuMpData,
+  IN UINT32                      ProcessorSignature,
+  IN UINT32                      ProcessorFlags
+  )
+{
+  UINTN          Index;
+  CPU_AP_DATA    *CpuData;
+
+  for (Index = 0; Index < CpuMpData->CpuCount; Index++) {
+    CpuData = &CpuMpData->CpuData[Index];
+    if ((ProcessorSignature == CpuData->ProcessorSignature) &&
+        (ProcessorFlags & (1 << CpuData->PlatformId)) != 0) {
+      return TRUE;
+    }
+  }
+
+  return FALSE;
+}
+
+/**
+  Check the 'ProcessorSignature' and 'ProcessorFlags' of the microcode
+  patch header with the CPUID and PlatformID of the processors within
+  system to decide if it will be copied into memory.
+
+  @param[in]  CpuMpData             The pointer to CPU MP Data structure.
+  @param[in]  MicrocodeEntryPoint   The pointer to the microcode patch header.
+
+  @retval TRUE     The specified microcode patch need to be loaded.
+  @retval FALSE    The specified microcode patch dosen't need to be loaded.
+**/
+BOOLEAN
+IsMicrocodePatchNeedLoad (
+  IN CPU_MP_DATA                 *CpuMpData,
+  CPU_MICROCODE_HEADER           *MicrocodeEntryPoint
+  )
+{
+  BOOLEAN                                NeedLoad;
+  UINTN                                  DataSize;
+  UINTN                                  TotalSize;
+  CPU_MICROCODE_EXTENDED_TABLE_HEADER    *ExtendedTableHeader;
+  UINT32                                 ExtendedTableCount;
+  CPU_MICROCODE_EXTENDED_TABLE           *ExtendedTable;
+  UINTN                                  Index;
+
+  //
+  // Check the 'ProcessorSignature' and 'ProcessorFlags' in microcode patch header.
+  //
+  NeedLoad = IsProcessorMatchedMicrocodePatch (
+               CpuMpData,
+               MicrocodeEntryPoint->ProcessorSignature.Uint32,
+               MicrocodeEntryPoint->ProcessorFlags
+               );
+
+  //
+  // If the Extended Signature Table exists, check if the processor is in the
+  // support list
+  //
+  DataSize  = MicrocodeEntryPoint->DataSize;
+  TotalSize = (DataSize == 0) ? 2048 : MicrocodeEntryPoint->TotalSize;
+  if ((!NeedLoad) && (DataSize != 0) &&
+      (TotalSize - DataSize > sizeof (CPU_MICROCODE_HEADER) +
+                              sizeof (CPU_MICROCODE_EXTENDED_TABLE_HEADER))) {
+    ExtendedTableHeader = (CPU_MICROCODE_EXTENDED_TABLE_HEADER *) ((UINT8 *) (MicrocodeEntryPoint)
+                            + DataSize + sizeof (CPU_MICROCODE_HEADER));
+    ExtendedTableCount  = ExtendedTableHeader->ExtendedSignatureCount;
+    ExtendedTable       = (CPU_MICROCODE_EXTENDED_TABLE *) (ExtendedTableHeader + 1);
+
+    for (Index = 0; Index < ExtendedTableCount; Index ++) {
+      //
+      // Check the 'ProcessorSignature' and 'ProcessorFlag' of the Extended
+      // Signature Table entry with the CPUID and PlatformID of the processors
+      // within system to decide if it will be copied into memory
+      //
+      NeedLoad = IsProcessorMatchedMicrocodePatch (
+                   CpuMpData,
+                   ExtendedTable->ProcessorSignature.Uint32,
+                   ExtendedTable->ProcessorFlag
+                   );
+      if (NeedLoad) {
+        break;
+      }
+      ExtendedTable ++;
+    }
+  }
+
+  return NeedLoad;
+}
+
+
+/**
+  Actual worker function that shadows the required microcode patches into memory.
+
+  @param[in, out]  CpuMpData        The pointer to CPU MP Data structure.
+  @param[in]       Patches          The pointer to an array of information on
+                                    the microcode patches that will be loaded
+                                    into memory.
+  @param[in]       PatchCount       The number of microcode patches that will
+                                    be loaded into memory.
+  @param[in]       TotalLoadSize    The total size of all the microcode patches
+                                    to be loaded.
+**/
+VOID
+ShadowMicrocodePatchWorker (
+  IN OUT CPU_MP_DATA             *CpuMpData,
+  IN     MICROCODE_PATCH_INFO    *Patches,
+  IN     UINTN                   PatchCount,
+  IN     UINTN                   TotalLoadSize
+  )
+{
+  UINTN    Index;
+  VOID     *MicrocodePatchInRam;
+  UINT8    *Walker;
+
+  ASSERT ((Patches != NULL) && (PatchCount != 0));
+
+  MicrocodePatchInRam = AllocatePages (EFI_SIZE_TO_PAGES (TotalLoadSize));
+  if (MicrocodePatchInRam == NULL) {
+    return;
+  }
+
+  //
+  // Load all the required microcode patches into memory
+  //
+  for (Walker = MicrocodePatchInRam, Index = 0; Index < PatchCount; Index++) {
+    CopyMem (
+      Walker,
+      (VOID *) Patches[Index].Address,
+      Patches[Index].Size
+      );
+    Walker += Patches[Index].Size;
+  }
+
+  //
+  // Update the microcode patch related fields in CpuMpData
+  //
+  CpuMpData->MicrocodePatchAddress    = (UINTN) MicrocodePatchInRam;
+  CpuMpData->MicrocodePatchRegionSize = TotalLoadSize;
+
+  DEBUG ((
+    DEBUG_INFO,
+    "%a: Required microcode patches have been loaded at 0x%lx, with size 0x%lx.\n",
+    __FUNCTION__, CpuMpData->MicrocodePatchAddress, CpuMpData->MicrocodePatchRegionSize
+    ));
+
+  return;
+}
+
+/**
+  Shadow the required microcode patches data into memory according to PCD
+  PcdCpuMicrocodePatchAddress and PcdCpuMicrocodePatchRegionSize.
+
+  @param[in, out]  CpuMpData    The pointer to CPU MP Data structure.
+**/
+VOID
+ShadowMicrocodePatchByPcd (
+  IN OUT CPU_MP_DATA             *CpuMpData
+  )
+{
+  CPU_MICROCODE_HEADER                   *MicrocodeEntryPoint;
+  UINTN                                  MicrocodeEnd;
+  UINTN                                  DataSize;
+  UINTN                                  TotalSize;
+  MICROCODE_PATCH_INFO                   *PatchInfoBuffer;
+  UINTN                                  MaxPatchNumber;
+  UINTN                                  PatchCount;
+  UINTN                                  TotalLoadSize;
+
+  //
+  // Initialize the microcode patch related fields in CpuMpData as the values
+  // specified by the PCD pair. If the microcode patches are loaded into memory,
+  // these fields will be updated.
+  //
+  CpuMpData->MicrocodePatchAddress    = PcdGet64 (PcdCpuMicrocodePatchAddress);
+  CpuMpData->MicrocodePatchRegionSize = PcdGet64 (PcdCpuMicrocodePatchRegionSize);
+
+  MicrocodeEntryPoint    = (CPU_MICROCODE_HEADER *) (UINTN) CpuMpData->MicrocodePatchAddress;
+  MicrocodeEnd           = (UINTN) MicrocodeEntryPoint +
+                           (UINTN) CpuMpData->MicrocodePatchRegionSize;
+  if ((MicrocodeEntryPoint == NULL) || ((UINTN) MicrocodeEntryPoint == MicrocodeEnd)) {
     //
-    // Save BSP processor info and microcode info for later AP use.
+    // There is no microcode patches
     //
-    CpuMpData->ProcessorSignature   = Eax.Uint32;
-    CpuMpData->ProcessorFlags       = ProcessorFlags;
-    CpuMpData->MicrocodeDataAddress = (UINTN) MicrocodeData;
-    CpuMpData->MicrocodeRevision    = LatestRevision;
-    DEBUG ((DEBUG_INFO, "BSP Microcode:: signature [0x%08x], ProcessorFlags [0x%08x], \
-       MicroData [0x%08x], Revision [0x%08x]\n", Eax.Uint32, ProcessorFlags, (UINTN) MicrocodeData, LatestRevision));
+    return;
+  }
+
+  PatchCount      = 0;
+  MaxPatchNumber  = DEFAULT_MAX_MICROCODE_PATCH_NUM;
+  TotalLoadSize   = 0;
+  PatchInfoBuffer = AllocatePool (MaxPatchNumber * sizeof (MICROCODE_PATCH_INFO));
+  if (PatchInfoBuffer == NULL) {
+    return;
+  }
+
+  //
+  // Process the header of each microcode patch within the region.
+  // The purpose is to decide which microcode patch(es) will be loaded into memory.
+  //
+  do {
+    if (MicrocodeEntryPoint->HeaderVersion != 0x1) {
+      //
+      // Padding data between the microcode patches, skip 1KB to check next entry.
+      //
+      MicrocodeEntryPoint = (CPU_MICROCODE_HEADER *) (((UINTN) MicrocodeEntryPoint) + SIZE_1KB);
+      continue;
+    }
+
+    DataSize  = MicrocodeEntryPoint->DataSize;
+    TotalSize = (DataSize == 0) ? 2048 : MicrocodeEntryPoint->TotalSize;
+    if ( (UINTN)MicrocodeEntryPoint > (MAX_ADDRESS - TotalSize) ||
+         ((UINTN)MicrocodeEntryPoint + TotalSize) > MicrocodeEnd ||
+         (DataSize & 0x3) != 0 ||
+         (TotalSize & (SIZE_1KB - 1)) != 0 ||
+         TotalSize < DataSize
+       ) {
+      //
+      // Not a valid microcode header, skip 1KB to check next entry.
+      //
+      MicrocodeEntryPoint = (CPU_MICROCODE_HEADER *) (((UINTN) MicrocodeEntryPoint) + SIZE_1KB);
+      continue;
+    }
+
+    if (IsMicrocodePatchNeedLoad (CpuMpData, MicrocodeEntryPoint)) {
+      PatchCount++;
+      if (PatchCount > MaxPatchNumber) {
+        //
+        // Current 'PatchInfoBuffer' cannot hold the information, double the size
+        // and allocate a new buffer.
+        //
+        if (MaxPatchNumber > MAX_UINTN / 2 / sizeof (MICROCODE_PATCH_INFO)) {
+          //
+          // Overflow check for MaxPatchNumber
+          //
+          goto OnExit;
+        }
+
+        PatchInfoBuffer = ReallocatePool (
+                            MaxPatchNumber * sizeof (MICROCODE_PATCH_INFO),
+                            2 * MaxPatchNumber * sizeof (MICROCODE_PATCH_INFO),
+                            PatchInfoBuffer
+                            );
+        if (PatchInfoBuffer == NULL) {
+          goto OnExit;
+        }
+        MaxPatchNumber = MaxPatchNumber * 2;
+      }
+
+      //
+      // Store the information of this microcode patch
+      //
+      PatchInfoBuffer[PatchCount - 1].Address = (UINTN) MicrocodeEntryPoint;
+      PatchInfoBuffer[PatchCount - 1].Size    = TotalSize;
+      TotalLoadSize += TotalSize;
+    }
+
+    //
+    // Process the next microcode patch
+    //
+    MicrocodeEntryPoint = (CPU_MICROCODE_HEADER *) (((UINTN) MicrocodeEntryPoint) + TotalSize);
+  } while (((UINTN) MicrocodeEntryPoint < MicrocodeEnd));
+
+  if (PatchCount != 0) {
+    DEBUG ((
+      DEBUG_INFO,
+      "%a: 0x%x microcode patches will be loaded into memory, with size 0x%x.\n",
+      __FUNCTION__, PatchCount, TotalLoadSize
+      ));
+
+    ShadowMicrocodePatchWorker (CpuMpData, PatchInfoBuffer, PatchCount, TotalLoadSize);
+  }
+
+OnExit:
+  if (PatchInfoBuffer != NULL) {
+    FreePool (PatchInfoBuffer);
+  }
+  return;
+}
+
+/**
+  Shadow the required microcode patches data into memory according to FIT microcode entry.
+
+  @param[in, out]  CpuMpData    The pointer to CPU MP Data structure.
+
+  @return EFI_SUCCESS           Microcode patch is shadowed into memory.
+  @return EFI_UNSUPPORTED       FIT based microcode shadowing is not supported.
+  @return EFI_OUT_OF_RESOURCES  No enough memory resource.
+  @return EFI_NOT_FOUND         There is something wrong in FIT microcode entry.
+
+**/
+EFI_STATUS
+ShadowMicrocodePatchByFit (
+  IN OUT CPU_MP_DATA             *CpuMpData
+  )
+{
+  UINT64                            FitPointer;
+  FIRMWARE_INTERFACE_TABLE_ENTRY    *FitEntry;
+  UINT32                            EntryNum;
+  UINT32                            Index;
+  MICROCODE_PATCH_INFO              *PatchInfoBuffer;
+  UINTN                             MaxPatchNumber;
+  CPU_MICROCODE_HEADER              *MicrocodeEntryPoint;
+  UINTN                             PatchCount;
+  UINTN                             TotalSize;
+  UINTN                             TotalLoadSize;
+
+  if (!FeaturePcdGet (PcdCpuShadowMicrocodeByFit)) {
+    return EFI_UNSUPPORTED;
+  }
+
+  FitPointer = *(UINT64 *) (UINTN) FIT_POINTER_ADDRESS;
+  if ((FitPointer == 0) ||
+      (FitPointer == 0xFFFFFFFFFFFFFFFF) ||
+      (FitPointer == 0xEEEEEEEEEEEEEEEE)) {
+    //
+    // No FIT table.
+    //
+    ASSERT (FALSE);
+    return EFI_NOT_FOUND;
+  }
+  FitEntry = (FIRMWARE_INTERFACE_TABLE_ENTRY *) (UINTN) FitPointer;
+  if ((FitEntry[0].Type != FIT_TYPE_00_HEADER) ||
+      (FitEntry[0].Address != FIT_TYPE_00_SIGNATURE)) {
+    //
+    // Invalid FIT table, treat it as no FIT table.
+    //
+    ASSERT (FALSE);
+    return EFI_NOT_FOUND;
+  }
+
+  EntryNum = *(UINT32 *)(&FitEntry[0].Size[0]) & 0xFFFFFF;
+
+  //
+  // Calculate microcode entry number
+  //
+  MaxPatchNumber = 0;
+  for (Index = 0; Index < EntryNum; Index++) {
+    if (FitEntry[Index].Type == FIT_TYPE_01_MICROCODE) {
+      MaxPatchNumber++;
+    }
+  }
+  if (MaxPatchNumber == 0) {
+    return EFI_NOT_FOUND;
+  }
+
+  PatchInfoBuffer = AllocatePool (MaxPatchNumber * sizeof (MICROCODE_PATCH_INFO));
+  if (PatchInfoBuffer == NULL) {
+    return EFI_OUT_OF_RESOURCES;
+  }
+
+  //
+  // Fill up microcode patch info buffer according to FIT table.
+  //
+  PatchCount = 0;
+  TotalLoadSize = 0;
+  for (Index = 0; Index < EntryNum; Index++) {
+    if (FitEntry[Index].Type == FIT_TYPE_01_MICROCODE) {
+      MicrocodeEntryPoint = (CPU_MICROCODE_HEADER *) (UINTN) FitEntry[Index].Address;
+      TotalSize = (MicrocodeEntryPoint->DataSize == 0) ? 2048 : MicrocodeEntryPoint->TotalSize;
+      if (IsMicrocodePatchNeedLoad (CpuMpData, MicrocodeEntryPoint)) {
+        PatchInfoBuffer[PatchCount].Address     = (UINTN) MicrocodeEntryPoint;
+        PatchInfoBuffer[PatchCount].Size        = TotalSize;
+        TotalLoadSize += TotalSize;
+        PatchCount++;
+      }
+    }
+  }
+
+  if (PatchCount != 0) {
+    DEBUG ((
+      DEBUG_INFO,
+      "%a: 0x%x microcode patches will be loaded into memory, with size 0x%x.\n",
+      __FUNCTION__, PatchCount, TotalLoadSize
+      ));
+
+    ShadowMicrocodePatchWorker (CpuMpData, PatchInfoBuffer, PatchCount, TotalLoadSize);
+  }
+
+  FreePool (PatchInfoBuffer);
+  return EFI_SUCCESS;
+}
+
+/**
+  Shadow the required microcode patches data into memory.
+
+  @param[in, out]  CpuMpData    The pointer to CPU MP Data structure.
+**/
+VOID
+ShadowMicrocodeUpdatePatch (
+  IN OUT CPU_MP_DATA             *CpuMpData
+  )
+{
+  EFI_STATUS     Status;
+
+  Status = ShadowMicrocodePatchByFit (CpuMpData);
+  if (EFI_ERROR (Status)) {
+    ShadowMicrocodePatchByPcd (CpuMpData);
   }
 }

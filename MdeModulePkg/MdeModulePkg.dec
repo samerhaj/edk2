@@ -3,6 +3,7 @@
 # It also provides the definitions(including PPIs/PROTOCOLs/GUIDs and library classes)
 # and libraries instances, which are used for those modules.
 #
+# Copyright (c) 2019, NVIDIA CORPORATION. All rights reserved.
 # Copyright (c) 2007 - 2019, Intel Corporation. All rights reserved.<BR>
 # Copyright (c) 2016, Linaro Ltd. All rights reserved.<BR>
 # (C) Copyright 2016 - 2019 Hewlett Packard Enterprise Development LP<BR>
@@ -584,6 +585,11 @@
   ## Include/Protocol/IoMmu.h
   gEdkiiIoMmuProtocolGuid = { 0x4e939de9, 0xd948, 0x4b0f, { 0x88, 0xed, 0xe6, 0xe1, 0xce, 0x51, 0x7c, 0x1e } }
 
+  ## Include/Protocol/DeviceSecurity.h
+  gEdkiiDeviceSecurityProtocolGuid  = { 0x5d6b38c8, 0x5510, 0x4458, { 0xb4, 0x8d, 0x95, 0x81, 0xcf, 0xa7, 0xb0, 0xd } }
+  gEdkiiDeviceIdentifierTypePciGuid = { 0x2509b2f1, 0xa022, 0x4cca, { 0xaf, 0x70, 0xf9, 0xd3, 0x21, 0xfb, 0x66, 0x49 } }
+  gEdkiiDeviceIdentifierTypeUsbGuid = { 0x7394f350, 0x394d, 0x488c, { 0xbb, 0x75, 0xc, 0xab, 0x7b, 0x12, 0xa, 0xc5 } }
+
   ## Include/Protocol/SmmMemoryAttribute.h
   gEdkiiSmmMemoryAttributeProtocolGuid = { 0x69b792ea, 0x39ce, 0x402d, { 0xa2, 0xa6, 0xf7, 0x21, 0xde, 0x35, 0x1d, 0xfe } }
 
@@ -603,6 +609,9 @@
 
   ## Include/Protocol/PeCoffImageEmulator.h
   gEdkiiPeCoffImageEmulatorProtocolGuid = { 0x96f46153, 0x97a7, 0x4793, { 0xac, 0xc1, 0xfa, 0x19, 0xbf, 0x78, 0xea, 0x97 } }
+
+  ## Include/Protocol/PlatformBootManager.h
+  gEdkiiPlatformBootManagerProtocolGuid = { 0xaa17add4, 0x756c, 0x460d, { 0x94, 0xb8, 0x43, 0x88, 0xd7, 0xfb, 0x3e, 0x59 } }
 
 #
 # [Error.gEfiMdeModulePkgTokenSpaceGuid]
@@ -640,6 +649,18 @@
   #   FALSE - Device Path From Text Protocol will not be produced.<BR>
   # @Prompt Enable Device Path From Text support.
   gEfiMdeModulePkgTokenSpaceGuid.PcdDevicePathSupportDevicePathFromText|TRUE|BOOLEAN|0x00010038
+
+  ## Indicates if the UEFI variable runtime cache should be enabled.
+  #  This setting only applies if SMM variables are enabled. When enabled, all variable
+  #  data for Runtime Service GetVariable () and GetNextVariableName () calls is retrieved
+  #  from a runtime data buffer referred to as the "runtime cache". An SMI is not triggered
+  #  at all for these requests. Variables writes still trigger an SMI. This can greatly
+  #  reduce overall system SMM usage as most boots tend to issue far more variable reads
+  #  than writes.<BR><BR>
+  #   TRUE  - The UEFI variable runtime cache is enabled.<BR>
+  #   FALSE - The UEFI variable runtime cache is disabled.<BR>
+  # @Prompt Enable the UEFI variable runtime cache.
+  gEfiMdeModulePkgTokenSpaceGuid.PcdEnableVariableRuntimeCache|TRUE|BOOLEAN|0x00010039
 
   ## Indicates if the statistics about variable usage will be collected. This information is
   #  stored as a vendor configuration table into the EFI system table.
@@ -1985,6 +2006,14 @@
   #  by this PCD, instead of the EFI System Partition that stores capsule image file.
   # @Prompt Capsule On Disk relocation device path.
   gEfiMdeModulePkgTokenSpaceGuid.PcdCodRelocationDevPath|{0xFF}|VOID*|0x0000002f
+
+  ## Indicates which TCG Platform Firmware Profile revision the EDKII firmware follows.
+  #  The revision number is defined in MdePkg/Include/IndustryStandard/UefiTcgPlatform.h
+  #  0:   This is for compatiblity support.
+  #  105: This is the first revision to support 800-155 is related event, such as
+  #       EV_EFI_PLATFORM_FIRMWARE_BLOB2 and EV_EFI_HANDOFF_TABLES2.
+  # @Prompt TCG Platform Firmware Profile revision.
+  gEfiMdeModulePkgTokenSpaceGuid.PcdTcgPfpMeasurementRevision|0|UINT32|0x00010077
 
 [PcdsPatchableInModule]
   ## Specify memory size with page number for PEI code when
