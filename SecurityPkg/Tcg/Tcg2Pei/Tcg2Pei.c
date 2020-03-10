@@ -460,7 +460,7 @@ MeasureCRTMVersion (
            );
 }
 
-/*
+/**
   Get the FvName from the FV header.
 
   Causion: The FV is untrusted input.
@@ -470,7 +470,7 @@ MeasureCRTMVersion (
 
   @return FvName pointer
   @retval NULL   FvName is NOT found
-*/
+**/
 VOID *
 GetFvName (
   IN EFI_PHYSICAL_ADDRESS           FvBase,
@@ -1006,7 +1006,7 @@ PeimEntryMA (
     }
 
     //
-    // Only intall TpmInitializedPpi on success
+    // Only install TpmInitializedPpi on success
     //
     Status = PeiServicesInstallPpi (&mTpmInitializedPpiList);
     ASSERT_EFI_ERROR (Status);
@@ -1027,7 +1027,7 @@ Done:
       );
   }
   //
-  // Always intall TpmInitializationDonePpi no matter success or fail.
+  // Always install TpmInitializationDonePpi no matter success or fail.
   // Other driver can know TPM initialization state by TpmInitializedPpi.
   //
   Status2 = PeiServicesInstallPpi (&mTpmInitializationDonePpiList);

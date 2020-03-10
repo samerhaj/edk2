@@ -2,6 +2,8 @@
   Common header file for MP Initialize Library.
 
   Copyright (c) 2016 - 2020, Intel Corporation. All rights reserved.<BR>
+  Copyright (c) 2020, AMD Inc. All rights reserved.<BR>
+
   SPDX-License-Identifier: BSD-2-Clause-Patent
 
 **/
@@ -12,6 +14,7 @@
 #include <PiPei.h>
 
 #include <Register/Intel/Cpuid.h>
+#include <Register/Amd/Cpuid.h>
 #include <Register/Intel/Msr.h>
 #include <Register/Intel/LocalApic.h>
 #include <Register/Intel/Microcode.h>
@@ -29,8 +32,7 @@
 #include <Library/MtrrLib.h>
 #include <Library/HobLib.h>
 
-#include <IndustryStandard/FirmwareInterfaceTable.h>
-
+#include <Guid/MicrocodePatchHob.h>
 
 #define WAKEUP_AP_SIGNAL SIGNATURE_32 ('S', 'T', 'A', 'P')
 
@@ -219,8 +221,6 @@ struct _CPU_MP_DATA {
   UINT64                         CpuInfoInHob;
   UINT32                         CpuCount;
   UINT32                         BspNumber;
-  UINT64                         MicrocodePatchAddress;
-  UINT64                         MicrocodePatchRegionSize;
   //
   // The above fields data will be passed from PEI to DXE
   // Please make sure the fields offset same in the different
@@ -264,6 +264,8 @@ struct _CPU_MP_DATA {
   UINT8                          Vector;
   BOOLEAN                        PeriodicMode;
   BOOLEAN                        TimerInterruptState;
+  UINT64                         MicrocodePatchAddress;
+  UINT64                         MicrocodePatchRegionSize;
 
   //
   // Whether need to use Init-Sipi-Sipi to wake up the APs.
@@ -600,6 +602,27 @@ ShadowMicrocodeUpdatePatch (
   );
 
 /**
+  Get the cached microcode patch base address and size from the microcode patch
+  information cache HOB.
+
+  @param[out] Address       Base address of the microcode patches data.
+                            It will be updated if the microcode patch
+                            information cache HOB is found.
+  @param[out] RegionSize    Size of the microcode patches data.
+                            It will be updated if the microcode patch
+                            information cache HOB is found.
+
+  @retval  TRUE     The microcode patch information cache HOB is found.
+  @retval  FALSE    The microcode patch information cache HOB is not found.
+
+**/
+BOOLEAN
+GetMicrocodePatchInfoFromHob (
+  UINT64                         *Address,
+  UINT64                         *RegionSize
+  );
+
+/**
   Detect whether Mwait-monitor feature is supported.
 
   @retval TRUE    Mwait-monitor feature is supported.
@@ -632,6 +655,22 @@ EFI_STATUS
 GetProcessorNumber (
   IN CPU_MP_DATA               *CpuMpData,
   OUT UINTN                    *ProcessorNumber
+  );
+
+/**
+  This funtion will try to invoke platform specific microcode shadow logic to
+  relocate microcode update patches into memory.
+
+  @param[in] CpuMpData  The pointer to CPU MP Data structure.
+
+  @retval EFI_SUCCESS              Shadow microcode success.
+  @retval EFI_OUT_OF_RESOURCES     No enough resource to complete the operation.
+  @retval EFI_UNSUPPORTED          Can't find platform specific microcode shadow
+                                   PPI/Protocol.
+**/
+EFI_STATUS
+PlatformShadowMicrocode (
+  IN OUT CPU_MP_DATA             *CpuMpData
   );
 
 #endif

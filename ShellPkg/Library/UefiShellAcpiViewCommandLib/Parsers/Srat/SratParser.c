@@ -1,7 +1,7 @@
 /** @file
   SRAT table parser
 
-  Copyright (c) 2016 - 2019, ARM Limited. All rights reserved.
+  Copyright (c) 2016 - 2020, ARM Limited. All rights reserved.
   SPDX-License-Identifier: BSD-2-Clause-Patent
 
   @par Reference(s):
@@ -399,14 +399,29 @@ ParseAcpiSrat (
       PARSER_PARAMS (SratResourceAllocationParser)
       );
 
-    // Make sure the SRAT structure lies inside the table
-    if ((Offset + *SratRALength) > AcpiTableLength) {
+    // Check if the values used to control the parsing logic have been
+    // successfully read.
+    if ((SratRAType == NULL) ||
+        (SratRALength == NULL)) {
       IncrementErrorCount ();
       Print (
-        L"ERROR: Invalid SRAT structure length. SratRALength = %d. " \
-          L"RemainingTableBufferLength = %d. SRAT parsing aborted.\n",
-        *SratRALength,
+        L"ERROR: Insufficient remaining table buffer length to read the " \
+          L"Static Resource Allocation structure header. Length = %d.\n",
         AcpiTableLength - Offset
+        );
+      return;
+    }
+
+    // Validate Static Resource Allocation Structure length
+    if ((*SratRALength == 0) ||
+        ((Offset + (*SratRALength)) > AcpiTableLength)) {
+      IncrementErrorCount ();
+      Print (
+        L"ERROR: Invalid Static Resource Allocation Structure length. " \
+          L"Length = %d. Offset = %d. AcpiTableLength = %d.\n",
+        *SratRALength,
+        Offset,
+        AcpiTableLength
         );
       return;
     }

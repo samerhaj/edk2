@@ -377,8 +377,8 @@ M: Liming Gao <liming.gao@intel.com>
 NetworkPkg
 F: NetworkPkg/
 W: https://github.com/tianocore/tianocore.github.io/wiki/NetworkPkg
-M: Jiaxin Wu <jiaxin.wu@intel.com>
 M: Maciej Rabeda <maciej.rabeda@linux.intel.com>
+R: Jiaxin Wu <jiaxin.wu@intel.com>
 R: Siyuan Fu <siyuan.fu@intel.com>
 
 OvmfPkg
@@ -477,6 +477,13 @@ W: https://github.com/tianocore/tianocore.github.io/wiki/UefiPayloadPkg
 M: Maurice Ma <maurice.ma@intel.com>
 M: Guo Dong <guo.dong@intel.com>
 M: Benjamin You <benjamin.you@intel.com>
+S: Maintained
+
+UnitTestFrameworkPkg
+F: UnitTestFrameworkPkg/
+M: Michael D Kinney <michael.d.kinney@intel.com>
+R: Sean Brogan <sean.brogan@microsoft.com>
+R: Bret Barkelew <Bret.Barkelew@microsoft.com>
 S: Maintained
 
 StandaloneMmPkg
