@@ -3,7 +3,7 @@
   image stored in a firmware device with platform and firmware device specific
   information provided through PCDs and libraries.
 
-  Copyright (c) 2016, Microsoft Corporation. All rights reserved.<BR>
+  Copyright (c) Microsoft Corporation.<BR>
   Copyright (c) 2018 - 2020, Intel Corporation. All rights reserved.<BR>
 
   SPDX-License-Identifier: BSD-2-Clause-Patent
@@ -12,7 +12,6 @@
 
 #include "FmpDxe.h"
 #include "VariableSupport.h"
-#include "Dependency.h"
 
 ///
 /// FILE_GUID from FmpDxe.inf.  When FmpDxe.inf is used in a platform, the
@@ -81,7 +80,8 @@ const FIRMWARE_MANAGEMENT_PRIVATE_DATA  mFirmwareManagementPrivateDataTemplate =
   NULL,                                        // LsvVariableName
   NULL,                                        // LastAttemptStatusVariableName
   NULL,                                        // LastAttemptVersionVariableName
-  NULL                                         // FmpStateVariableName
+  NULL,                                        // FmpStateVariableName
+  TRUE                                         // DependenciesSatisfied
 };
 
 ///
@@ -179,7 +179,7 @@ GetImageTypeIdGuid (
     if (ImageTypeIdGuidSize == sizeof (EFI_GUID)) {
       FmpDeviceLibGuid = (EFI_GUID *)PcdGetPtr (PcdFmpDeviceImageTypeIdGuid);
     } else {
-      DEBUG ((DEBUG_INFO, "FmpDxe(%s): Fall back to ImageTypeIdGuid of gEfiCallerIdGuid\n", mImageIdName));
+      DEBUG ((DEBUG_WARN, "FmpDxe(%s): Fall back to ImageTypeIdGuid of gEfiCallerIdGuid\n", mImageIdName));
       FmpDeviceLibGuid = &gEfiCallerIdGuid;
     }
   }
@@ -276,13 +276,12 @@ PopulateDescriptor (
   )
 {
   EFI_STATUS  Status;
-  VOID        *Image;
-  UINTN       ImageSize;
-  BOOLEAN     IsDepexValid;
-  UINT32      DepexSize;
+  UINT32      DependenciesSize;
 
-  Image     = NULL;
-  ImageSize = 0;
+  if (Private == NULL) {
+    DEBUG ((DEBUG_ERROR, "FmpDxe(%s): PopulateDescriptor() - Private is NULL.\n", mImageIdName));
+    return;
+  }
 
   if (Private->DescriptorPopulated) {
     return;
@@ -387,46 +386,18 @@ PopulateDescriptor (
   Private->Descriptor.LastAttemptStatus  = GetLastAttemptStatusFromVariable (Private);
 
   //
-  // Get the dependency from the FmpDeviceLib and populate it to the descriptor.
+  // Get the dependency from the FmpDependencyDeviceLib.
   //
   Private->Descriptor.Dependencies = NULL;
 
   //
   // Check the attribute IMAGE_ATTRIBUTE_DEPENDENCY
   //
-  if (Private->Descriptor.AttributesSupported & IMAGE_ATTRIBUTE_DEPENDENCY) {
-    //
-    // The parameter "Image" of FmpDeviceGetImage() is extended to contain the dependency.
-    // Get the dependency from the Image.
-    //
-    ImageSize = Private->Descriptor.Size;
-    Image = AllocatePool (ImageSize);
-    if (Image != NULL) {
-      Status = FmpDeviceGetImage (Image, &ImageSize);
-      if (Status == EFI_BUFFER_TOO_SMALL) {
-        FreePool (Image);
-        Image = AllocatePool (ImageSize);
-        if (Image != NULL) {
-          Status = FmpDeviceGetImage (Image, &ImageSize);
-        }
-      }
-    }
-    if (!EFI_ERROR (Status) && Image != NULL) {
-      IsDepexValid = ValidateImageDepex ((EFI_FIRMWARE_IMAGE_DEP *) Image, ImageSize, &DepexSize);
-      if (IsDepexValid) {
-        Private->Descriptor.Dependencies = AllocatePool (DepexSize);
-        if (Private->Descriptor.Dependencies != NULL) {
-          CopyMem (Private->Descriptor.Dependencies->Dependencies, Image, DepexSize);
-        }
-      }
-    }
+  if (Private->Descriptor.AttributesSetting & IMAGE_ATTRIBUTE_DEPENDENCY) {
+    Private->Descriptor.Dependencies = GetFmpDependency (&DependenciesSize);
   }
 
   Private->DescriptorPopulated = TRUE;
-
-  if (Image != NULL) {
-    FreePool (Image);
-  }
 }
 
 /**
@@ -484,6 +455,12 @@ GetTheImageInfo (
   FIRMWARE_MANAGEMENT_PRIVATE_DATA  *Private;
 
   Status = EFI_SUCCESS;
+
+  if (This == NULL) {
+    DEBUG ((DEBUG_ERROR, "FmpDxe(%s): GetImageInfo() - This is NULL.\n", mImageIdName));
+    Status = EFI_INVALID_PARAMETER;
+    goto cleanup;
+  }
 
   //
   // Retrieve the private context structure
@@ -588,17 +565,18 @@ GetTheImage (
   EFI_STATUS                        Status;
   FIRMWARE_MANAGEMENT_PRIVATE_DATA  *Private;
   UINTN                             Size;
-  UINT8                             *ImageBuffer;
-  UINTN                             ImageBufferSize;
-  UINT32                            DepexSize;
 
   if (!FeaturePcdGet (PcdFmpDeviceStorageAccessEnable)) {
     return EFI_UNSUPPORTED;
   }
 
-  Status          = EFI_SUCCESS;
-  ImageBuffer     = NULL;
-  DepexSize       = 0;
+  Status = EFI_SUCCESS;
+
+  if (This == NULL) {
+    DEBUG ((DEBUG_ERROR, "FmpDxe(%s): GetImage() - This is NULL.\n", mImageIdName));
+    Status = EFI_INVALID_PARAMETER;
+    goto cleanup;
+  }
 
   //
   // Retrieve the private context structure
@@ -628,45 +606,8 @@ GetTheImage (
   if (EFI_ERROR (Status)) {
     Size = 0;
   }
-
-  //
-  // The parameter "Image" of FmpDeviceGetImage() is extended to contain the dependency.
-  // Get the Fmp Payload from the Image.
-  //
-  ImageBufferSize = Size;
-  ImageBuffer = AllocatePool (ImageBufferSize);
-  if (ImageBuffer == NULL) {
-    DEBUG ((DEBUG_ERROR, "FmpDxe(%s): GetImage() - AllocatePool fails.\n", mImageIdName));
-    Status = EFI_NOT_FOUND;
-    goto cleanup;
-  }
-  Status = FmpDeviceGetImage (ImageBuffer, &ImageBufferSize);
-  if (Status == EFI_BUFFER_TOO_SMALL) {
-    FreePool (ImageBuffer);
-    ImageBuffer = AllocatePool (ImageBufferSize);
-    if (ImageBuffer == NULL) {
-      DEBUG ((DEBUG_ERROR, "FmpDxe(%s): GetImage() - AllocatePool fails.\n", mImageIdName));
-      Status = EFI_NOT_FOUND;
-      goto cleanup;
-    }
-    Status = FmpDeviceGetImage (ImageBuffer, &ImageBufferSize);
-  }
-  if (EFI_ERROR (Status)) {
-    goto cleanup;
-  }
-
-  //
-  // Check the attribute IMAGE_ATTRIBUTE_DEPENDENCY
-  //
-  if (Private->Descriptor.AttributesSetting & IMAGE_ATTRIBUTE_DEPENDENCY) {
-    //
-    // Validate the dependency to get its size.
-    //
-    ValidateImageDepex ((EFI_FIRMWARE_IMAGE_DEP *) ImageBuffer, ImageBufferSize, &DepexSize);
-  }
-
-  if (*ImageSize < ImageBufferSize - DepexSize) {
-    *ImageSize = ImageBufferSize - DepexSize;
+  if (*ImageSize < Size) {
+    *ImageSize = Size;
     DEBUG ((DEBUG_VERBOSE, "FmpDxe(%s): GetImage() - ImageSize is to small.\n", mImageIdName));
     Status = EFI_BUFFER_TOO_SMALL;
     goto cleanup;
@@ -678,17 +619,8 @@ GetTheImage (
     goto cleanup;
   }
 
-  //
-  // Image is after the dependency expression.
-  //
-  *ImageSize = ImageBufferSize - DepexSize;
-  CopyMem (Image, ImageBuffer + DepexSize, *ImageSize);
-  Status = EFI_SUCCESS;
-
+  Status = FmpDeviceGetImage (Image, ImageSize);
 cleanup:
-  if (ImageBuffer != NULL) {
-    FreePool (ImageBuffer);
-  }
 
   return Status;
 }
@@ -697,9 +629,11 @@ cleanup:
   Helper function to safely retrieve the FMP header from
   within an EFI_FIRMWARE_IMAGE_AUTHENTICATION structure.
 
-  @param[in]   Image        Pointer to the image.
-  @param[in]   ImageSize    Size of the image.
-  @param[out]  PayloadSize
+  @param[in]   Image                 Pointer to the image.
+  @param[in]   ImageSize             Size of the image.
+  @param[in]   AdditionalHeaderSize  Size of any headers that cannot be calculated by this function.
+  @param[out]  PayloadSize           An optional pointer to a UINTN that holds the size of the payload
+                                     (image size minus headers)
 
   @retval  !NULL  Valid pointer to the header.
   @retval  NULL   Structure is bad and pointer cannot be found.
@@ -709,22 +643,26 @@ VOID *
 GetFmpHeader (
   IN  CONST EFI_FIRMWARE_IMAGE_AUTHENTICATION  *Image,
   IN  CONST UINTN                              ImageSize,
-  OUT UINTN                                    *PayloadSize
+  IN  CONST UINTN                              AdditionalHeaderSize,
+  OUT UINTN                                    *PayloadSize OPTIONAL
   )
 {
   //
   // Check to make sure that operation can be safely performed.
   //
-  if (((UINTN)Image + sizeof (Image->MonotonicCount) + Image->AuthInfo.Hdr.dwLength) < (UINTN)Image || \
-      ((UINTN)Image + sizeof (Image->MonotonicCount) + Image->AuthInfo.Hdr.dwLength) >= (UINTN)Image + ImageSize) {
+  if (((UINTN)Image + sizeof (Image->MonotonicCount) + Image->AuthInfo.Hdr.dwLength) + AdditionalHeaderSize < (UINTN)Image || \
+      ((UINTN)Image + sizeof (Image->MonotonicCount) + Image->AuthInfo.Hdr.dwLength) + AdditionalHeaderSize >= (UINTN)Image + ImageSize) {
     //
     // Pointer overflow. Invalid image.
     //
     return NULL;
   }
 
-  *PayloadSize = ImageSize - (sizeof (Image->MonotonicCount) + Image->AuthInfo.Hdr.dwLength);
-  return (VOID *)((UINT8 *)Image + sizeof (Image->MonotonicCount) + Image->AuthInfo.Hdr.dwLength);
+  if (PayloadSize != NULL) {
+    *PayloadSize = ImageSize - (sizeof (Image->MonotonicCount) + Image->AuthInfo.Hdr.dwLength + AdditionalHeaderSize);
+  }
+
+  return (VOID *)((UINT8 *)Image + sizeof (Image->MonotonicCount) + Image->AuthInfo.Hdr.dwLength  + AdditionalHeaderSize);
 }
 
 /**
@@ -745,6 +683,11 @@ GetAllHeaderSize (
   )
 {
   UINT32  CalculatedSize;
+
+  if (Image == NULL) {
+    DEBUG ((DEBUG_ERROR, "FmpDxe(%s): GetAllHeaderSize() - Image is NULL.\n", mImageIdName));
+    return 0;
+  }
 
   CalculatedSize = sizeof (Image->MonotonicCount) +
                    AdditionalHeaderSize +
@@ -778,6 +721,23 @@ GetAllHeaderSize (
   @param[in]  ImageSize          Size of the new image in bytes.
   @param[out] ImageUpdatable     Indicates if the new image is valid for update. It also provides,
                                  if available, additional information if the image is invalid.
+  @param[out] LastAttemptStatus  A pointer to a UINT32 that holds the last attempt status to report
+                                 back to the ESRT table in case of error.  If an error does not occur,
+                                 this function will set the value to LAST_ATTEMPT_STATUS_SUCCESS.
+
+                                 This function will return error codes that occur within this function
+                                 implementation within a driver range of last attempt error codes from
+                                 LAST_ATTEMPT_STATUS_DRIVER_MIN_ERROR_CODE_VALUE
+                                 to LAST_ATTEMPT_STATUS_DRIVER_MAX_ERROR_CODE_VALUE.
+
+                                 This function might also return error codes that occur within libraries
+                                 linked against this module that return last attempt error codes such as:
+
+                                 LAST_ATTEMPT_STATUS_FMP_DEPENDENCY_LIB_MIN_ERROR_CODE_VALUE to
+                                 LAST_ATTEMPT_STATUS_FMP_DEPENDENCY_LIB_MAX_ERROR_CODE_VALUE
+
+                                 LAST_ATTEMPT_STATUS_FMP_DEPENDENCY_CHECK_LIB_MIN_ERROR_CODE_VALUE to
+                                 LAST_ATTEMPT_STATUS_FMP_DEPENDENCY_CHECK_LIB_MAX_ERROR_CODE_VALUE
 
   @retval EFI_SUCCESS            The image was successfully checked.
   @retval EFI_ABORTED            The operation is aborted.
@@ -788,15 +748,17 @@ GetAllHeaderSize (
 **/
 EFI_STATUS
 EFIAPI
-CheckTheImage (
+CheckTheImageInternal (
   IN  EFI_FIRMWARE_MANAGEMENT_PROTOCOL  *This,
   IN  UINT8                             ImageIndex,
   IN  CONST VOID                        *Image,
   IN  UINTN                             ImageSize,
-  OUT UINT32                            *ImageUpdatable
+  OUT UINT32                            *ImageUpdatable,
+  OUT UINT32                            *LastAttemptStatus
   )
 {
   EFI_STATUS                        Status;
+  UINT32                            LocalLastAttemptStatus;
   FIRMWARE_MANAGEMENT_PRIVATE_DATA  *Private;
   UINTN                             RawSize;
   VOID                              *FmpPayloadHeader;
@@ -811,21 +773,39 @@ CheckTheImage (
   UINT8                             *PublicKeyDataXdrEnd;
   EFI_FIRMWARE_IMAGE_DEP            *Dependencies;
   UINT32                            DependenciesSize;
-  BOOLEAN                           IsDepexValid;
-  BOOLEAN                           IsDepexSatisfied;
 
-  Status           = EFI_SUCCESS;
-  RawSize          = 0;
-  FmpPayloadHeader = NULL;
-  FmpPayloadSize   = 0;
-  Version          = 0;
-  FmpHeaderSize    = 0;
-  AllHeaderSize    = 0;
-  Dependencies     = NULL;
-  DependenciesSize = 0;
+  Status                  = EFI_SUCCESS;
+  LocalLastAttemptStatus  = LAST_ATTEMPT_STATUS_SUCCESS;
+  RawSize                 = 0;
+  FmpPayloadHeader        = NULL;
+  FmpPayloadSize          = 0;
+  Version                 = 0;
+  FmpHeaderSize           = 0;
+  AllHeaderSize           = 0;
+  Dependencies            = NULL;
+  DependenciesSize        = 0;
 
   if (!FeaturePcdGet (PcdFmpDeviceStorageAccessEnable)) {
     return EFI_UNSUPPORTED;
+  }
+
+  if (LastAttemptStatus == NULL) {
+    DEBUG ((DEBUG_ERROR, "FmpDxe(%s): CheckTheImageInternal() - LastAttemptStatus is NULL.\n", mImageIdName));
+    Status = EFI_INVALID_PARAMETER;
+    goto cleanup;
+  }
+
+  //
+  // A last attempt status error code will always override the success
+  // value before returning from the function
+  //
+  *LastAttemptStatus = LAST_ATTEMPT_STATUS_SUCCESS;
+
+  if (This == NULL) {
+    DEBUG ((DEBUG_ERROR, "FmpDxe(%s): CheckImage() - This is NULL.\n", mImageIdName));
+    Status = EFI_INVALID_PARAMETER;
+    *LastAttemptStatus = LAST_ATTEMPT_STATUS_DRIVER_ERROR_PROTOCOL_ARG_MISSING;
+    goto cleanup;
   }
 
   //
@@ -842,6 +822,7 @@ CheckTheImage (
   if (ImageUpdatable == NULL) {
     DEBUG ((DEBUG_ERROR, "FmpDxe(%s): CheckImage() - ImageUpdatable Pointer Parameter is NULL.\n", mImageIdName));
     Status = EFI_INVALID_PARAMETER;
+    *LastAttemptStatus = LAST_ATTEMPT_STATUS_DRIVER_ERROR_IMAGE_NOT_UPDATABLE;
     goto cleanup;
   }
 
@@ -850,12 +831,18 @@ CheckTheImage (
   //
   *ImageUpdatable = IMAGE_UPDATABLE_VALID;
 
+  //
+  // Set to satisfied and then if dependency evaluates to false it will update this flag.
+  //
+  Private->DependenciesSatisfied = TRUE;
+
   if (Image == NULL) {
     DEBUG ((DEBUG_ERROR, "FmpDxe(%s): CheckImage() - Image Pointer Parameter is NULL.\n", mImageIdName));
     //
     // not sure if this is needed
     //
     *ImageUpdatable = IMAGE_UPDATABLE_INVALID;
+    *LastAttemptStatus = LAST_ATTEMPT_STATUS_DRIVER_ERROR_IMAGE_NOT_PROVIDED;
     return EFI_INVALID_PARAMETER;
   }
 
@@ -865,6 +852,7 @@ CheckTheImage (
   if (PublicKeyDataXdr == NULL || (PublicKeyDataXdr == PublicKeyDataXdrEnd)) {
     DEBUG ((DEBUG_ERROR, "FmpDxe(%s): Invalid certificate, skipping it.\n", mImageIdName));
     Status = EFI_ABORTED;
+    LocalLastAttemptStatus = LAST_ATTEMPT_STATUS_DRIVER_ERROR_INVALID_CERTIFICATE;
   } else {
     //
     // Try each key from PcdFmpDevicePkcs7CertBufferXdr
@@ -887,6 +875,7 @@ CheckTheImage (
         //
         DEBUG ((DEBUG_ERROR, "FmpDxe(%s): Certificate size extends beyond end of PCD, skipping it.\n", mImageIdName));
         Status = EFI_ABORTED;
+        LocalLastAttemptStatus = LAST_ATTEMPT_STATUS_DRIVER_ERROR_INVALID_KEY_LENGTH_VALUE;
         break;
       }
       //
@@ -903,6 +892,7 @@ CheckTheImage (
         //
         DEBUG ((DEBUG_ERROR, "FmpDxe(%s): Certificate extends beyond end of PCD, skipping it.\n", mImageIdName));
         Status = EFI_ABORTED;
+        LocalLastAttemptStatus = LAST_ATTEMPT_STATUS_DRIVER_ERROR_INVALID_KEY_LENGTH;
         break;
       }
       PublicKeyData = PublicKeyDataXdr;
@@ -922,6 +912,11 @@ CheckTheImage (
 
   if (EFI_ERROR (Status)) {
     DEBUG ((DEBUG_ERROR, "FmpDxe(%s): CheckTheImage() - Authentication Failed %r.\n", mImageIdName, Status));
+    if (LocalLastAttemptStatus != LAST_ATTEMPT_STATUS_SUCCESS) {
+      *LastAttemptStatus = LocalLastAttemptStatus;
+    } else {
+      *LastAttemptStatus = LAST_ATTEMPT_STATUS_DRIVER_ERROR_IMAGE_AUTH_FAILURE;
+    }
     goto cleanup;
   }
 
@@ -931,49 +926,42 @@ CheckTheImage (
   if (ImageIndex != 1) {
     DEBUG ((DEBUG_ERROR, "FmpDxe(%s): CheckImage() - Image Index Invalid.\n", mImageIdName));
     *ImageUpdatable = IMAGE_UPDATABLE_INVALID_TYPE;
-    Status = EFI_SUCCESS;
+    Status = EFI_INVALID_PARAMETER;
+    *LastAttemptStatus = LAST_ATTEMPT_STATUS_DRIVER_ERROR_INVALID_IMAGE_INDEX;
     goto cleanup;
   }
 
+  //
+  // Get the dependency from Image.
+  //
+  Dependencies =  GetImageDependency (
+                    (EFI_FIRMWARE_IMAGE_AUTHENTICATION *) Image,
+                    ImageSize,
+                    &DependenciesSize,
+                    LastAttemptStatus
+                    );
+  if (*LastAttemptStatus != LAST_ATTEMPT_STATUS_SUCCESS) {
+    Status = EFI_ABORTED;
+    goto cleanup;
+  }
 
   //
   // Check the FmpPayloadHeader
   //
-  FmpPayloadHeader = GetFmpHeader ( (EFI_FIRMWARE_IMAGE_AUTHENTICATION *)Image, ImageSize, &FmpPayloadSize );
+  FmpPayloadHeader = GetFmpHeader ( (EFI_FIRMWARE_IMAGE_AUTHENTICATION *)Image, ImageSize, DependenciesSize, &FmpPayloadSize );
   if (FmpPayloadHeader == NULL) {
     DEBUG ((DEBUG_ERROR, "FmpDxe(%s): CheckTheImage() - GetFmpHeader failed.\n", mImageIdName));
     Status = EFI_ABORTED;
+    *LastAttemptStatus = LAST_ATTEMPT_STATUS_DRIVER_ERROR_GET_FMP_HEADER;
     goto cleanup;
   }
   Status = GetFmpPayloadHeaderVersion (FmpPayloadHeader, FmpPayloadSize, &Version);
   if (EFI_ERROR (Status)) {
-    //
-    // Check if there is dependency expression
-    //
-    IsDepexValid = ValidateImageDepex ((EFI_FIRMWARE_IMAGE_DEP*) FmpPayloadHeader, FmpPayloadSize, &DependenciesSize);
-    if (IsDepexValid && (DependenciesSize < FmpPayloadSize)) {
-      //
-      // Fmp payload is after dependency expression
-      //
-      Dependencies = (EFI_FIRMWARE_IMAGE_DEP*) FmpPayloadHeader;
-      FmpPayloadHeader = (UINT8 *) Dependencies + DependenciesSize;
-      FmpPayloadSize = FmpPayloadSize - DependenciesSize;
-      Status = GetFmpPayloadHeaderVersion (FmpPayloadHeader, FmpPayloadSize, &Version);
-      if (EFI_ERROR (Status)) {
-        DEBUG ((DEBUG_ERROR, "FmpDxe(%s): CheckTheImage() - GetFmpPayloadHeaderVersion failed %r.\n", mImageIdName, Status));
-        *ImageUpdatable = IMAGE_UPDATABLE_INVALID;
-        Status = EFI_SUCCESS;
-        goto cleanup;
-      }
-    } else {
-      DEBUG ((DEBUG_ERROR, "FmpDxe(%s): CheckTheImage() - Dependency is invalid.\n", mImageIdName));
-      mDependenciesCheckStatus = DEPENDENCIES_INVALID;
-      *ImageUpdatable = IMAGE_UPDATABLE_INVALID;
-      Status = EFI_SUCCESS;
-      goto cleanup;
-    }
-  } else {
-    DEBUG ((DEBUG_WARN, "FmpDxe(%s): CheckTheImage() - No dependency associated in image.\n", mImageIdName));
+    DEBUG ((DEBUG_ERROR, "FmpDxe(%s): CheckTheImage() - GetFmpPayloadHeaderVersion failed %r.\n", mImageIdName, Status));
+    *ImageUpdatable = IMAGE_UPDATABLE_INVALID;
+    Status = EFI_SUCCESS;
+    *LastAttemptStatus = LAST_ATTEMPT_STATUS_DRIVER_ERROR_GET_FMP_HEADER_VERSION;
+    goto cleanup;
   }
 
   //
@@ -987,22 +975,25 @@ CheckTheImage (
       );
     *ImageUpdatable = IMAGE_UPDATABLE_INVALID_OLD;
     Status = EFI_SUCCESS;
+    *LastAttemptStatus = LAST_ATTEMPT_STATUS_DRIVER_ERROR_VERSION_TOO_LOW;
     goto cleanup;
   }
 
   //
   // Evaluate dependency expression
   //
-  Status = EvaluateImageDependencies (Private->Descriptor.ImageTypeId, Version, Dependencies, DependenciesSize, &IsDepexSatisfied);
-  if (!IsDepexSatisfied || EFI_ERROR (Status)) {
-    if (EFI_ERROR (Status)) {
-      DEBUG ((DEBUG_ERROR, "FmpDxe(%s): CheckTheImage() - Dependency check failed %r.\n", mImageIdName, Status));
-    } else {
-      DEBUG ((DEBUG_ERROR, "FmpDxe(%s): CheckTheImage() - Dependency is not satisfied.\n", mImageIdName));
-    }
-    mDependenciesCheckStatus = DEPENDENCIES_UNSATISFIED;
+  Private->DependenciesSatisfied =  CheckFmpDependency (
+                                      Private->Descriptor.ImageTypeId,
+                                      Version,
+                                      Dependencies,
+                                      DependenciesSize,
+                                      &LocalLastAttemptStatus
+                                      );
+  if (!Private->DependenciesSatisfied) {
+    DEBUG ((DEBUG_ERROR, "FmpDxe(%s): CheckTheImage() - Dependency check failed.\n", mImageIdName));
     *ImageUpdatable = IMAGE_UPDATABLE_INVALID;
     Status = EFI_SUCCESS;
+    *LastAttemptStatus = LocalLastAttemptStatus;
     goto cleanup;
   }
 
@@ -1014,6 +1005,7 @@ CheckTheImage (
     DEBUG ((DEBUG_ERROR, "FmpDxe: CheckTheImage() - GetFmpPayloadHeaderSize failed %r.\n", Status));
     *ImageUpdatable = IMAGE_UPDATABLE_INVALID;
     Status = EFI_SUCCESS;
+    *LastAttemptStatus = LAST_ATTEMPT_STATUS_DRIVER_ERROR_GET_FMP_HEADER_SIZE;
     goto cleanup;
   }
 
@@ -1025,6 +1017,7 @@ CheckTheImage (
   if (AllHeaderSize == 0) {
     DEBUG ((DEBUG_ERROR, "FmpDxe(%s): CheckTheImage() - GetAllHeaderSize failed.\n", mImageIdName));
     Status = EFI_ABORTED;
+    *LastAttemptStatus = LAST_ATTEMPT_STATUS_DRIVER_ERROR_GET_ALL_HEADER_SIZE;
     goto cleanup;
   }
   RawSize = ImageSize - AllHeaderSize;
@@ -1032,13 +1025,64 @@ CheckTheImage (
   //
   // FmpDeviceLib CheckImage function to do any specific checks
   //
-  Status = FmpDeviceCheckImage ((((UINT8 *)Image) + AllHeaderSize), RawSize, ImageUpdatable);
+  Status = FmpDeviceCheckImageWithStatus ((((UINT8 *) Image) + AllHeaderSize), RawSize, ImageUpdatable, LastAttemptStatus);
   if (EFI_ERROR (Status)) {
     DEBUG ((DEBUG_ERROR, "FmpDxe(%s): CheckTheImage() - FmpDeviceLib CheckImage failed. Status = %r\n", mImageIdName, Status));
+
+    //
+    // LastAttemptStatus returned from the device library should fall within the designated error range
+    // [LAST_ATTEMPT_STATUS_DEVICE_LIBRARY_MIN_ERROR_CODE_VALUE, LAST_ATTEMPT_STATUS_DEVICE_LIBRARY_MAX_ERROR_CODE_VALUE]
+    //
+    if ((*LastAttemptStatus < LAST_ATTEMPT_STATUS_DEVICE_LIBRARY_MIN_ERROR_CODE_VALUE) ||
+        (*LastAttemptStatus > LAST_ATTEMPT_STATUS_DEVICE_LIBRARY_MAX_ERROR_CODE_VALUE)) {
+      DEBUG (
+        (DEBUG_ERROR,
+        "FmpDxe(%s): CheckTheImage() - LastAttemptStatus %d from FmpDeviceCheckImageWithStatus() is invalid.\n",
+        mImageIdName,
+        *LastAttemptStatus)
+        );
+      *LastAttemptStatus = LAST_ATTEMPT_STATUS_ERROR_UNSUCCESSFUL;
+    }
   }
 
 cleanup:
   return Status;
+}
+
+/**
+  Checks if the firmware image is valid for the device.
+
+  This function allows firmware update application to validate the firmware image without
+  invoking the SetImage() first.
+
+  @param[in]  This               A pointer to the EFI_FIRMWARE_MANAGEMENT_PROTOCOL instance.
+  @param[in]  ImageIndex         A unique number identifying the firmware image(s) within the device.
+                                 The number is between 1 and DescriptorCount.
+  @param[in]  Image              Points to the new image.
+  @param[in]  ImageSize          Size of the new image in bytes.
+  @param[out] ImageUpdatable     Indicates if the new image is valid for update. It also provides,
+                                 if available, additional information if the image is invalid.
+
+  @retval EFI_SUCCESS            The image was successfully checked.
+  @retval EFI_ABORTED            The operation is aborted.
+  @retval EFI_INVALID_PARAMETER  The Image was NULL.
+  @retval EFI_UNSUPPORTED        The operation is not supported.
+  @retval EFI_SECURITY_VIOLATION The operation could not be performed due to an authentication failure.
+
+**/
+EFI_STATUS
+EFIAPI
+CheckTheImage (
+  IN  EFI_FIRMWARE_MANAGEMENT_PROTOCOL  *This,
+  IN  UINT8                             ImageIndex,
+  IN  CONST VOID                        *Image,
+  IN  UINTN                             ImageSize,
+  OUT UINT32                            *ImageUpdatable
+  )
+{
+  UINT32  LastAttemptStatus;
+
+  return CheckTheImageInternal (This, ImageIndex, Image, ImageSize, ImageUpdatable, &LastAttemptStatus);
 }
 
 /**
@@ -1113,11 +1157,9 @@ SetTheImage (
   UINT32                            LowestSupportedVersion;
   EFI_FIRMWARE_IMAGE_DEP            *Dependencies;
   UINT32                            DependenciesSize;
-  BOOLEAN                           IsDepexValid;
-  UINT8                             *ImageBuffer;
-  UINTN                             ImageBufferSize;
 
   Status             = EFI_SUCCESS;
+  Private            = NULL;
   Updateable         = 0;
   BooleanValue       = FALSE;
   FmpHeaderSize      = 0;
@@ -1128,11 +1170,16 @@ SetTheImage (
   LastAttemptStatus  = LAST_ATTEMPT_STATUS_ERROR_UNSUCCESSFUL;
   Dependencies       = NULL;
   DependenciesSize   = 0;
-  ImageBuffer        = NULL;
-  ImageBufferSize    = 0;
 
   if (!FeaturePcdGet (PcdFmpDeviceStorageAccessEnable)) {
     return EFI_UNSUPPORTED;
+  }
+
+  if (This == NULL) {
+    DEBUG ((DEBUG_ERROR, "FmpDxe(%s): SetTheImage() - This is NULL.\n", mImageIdName));
+    Status = EFI_INVALID_PARAMETER;
+    LastAttemptStatus = LAST_ATTEMPT_STATUS_DRIVER_ERROR_PROTOCOL_ARG_MISSING;
+    goto cleanup;
   }
 
   //
@@ -1157,53 +1204,37 @@ SetTheImage (
   //
   if (Private->FmpDeviceLocked) {
     DEBUG ((DEBUG_ERROR, "FmpDxe(%s): SetTheImage() - Device is already locked.  Can't update.\n", mImageIdName));
+    LastAttemptStatus = LAST_ATTEMPT_STATUS_DRIVER_ERROR_DEVICE_LOCKED;
     Status = EFI_UNSUPPORTED;
     goto cleanup;
   }
 
   //
-  // Set check status to satisfied before CheckTheImage()
-  //
-  mDependenciesCheckStatus = DEPENDENCIES_SATISFIED;
-
-  //
   // Call check image to verify the image
   //
-  Status = CheckTheImage (This, ImageIndex, Image, ImageSize, &Updateable);
+  Status = CheckTheImageInternal (This, ImageIndex, Image, ImageSize, &Updateable, &LastAttemptStatus);
   if (EFI_ERROR (Status)) {
     DEBUG ((DEBUG_ERROR, "FmpDxe(%s): SetTheImage() - Check The Image failed with %r.\n", mImageIdName, Status));
-    if (Status == EFI_SECURITY_VIOLATION) {
-      LastAttemptStatus = LAST_ATTEMPT_STATUS_ERROR_AUTH_ERROR;
-    }
     goto cleanup;
   }
+
+  //
+  // Get the dependency from Image.
+  //
+  Dependencies = GetImageDependency ((EFI_FIRMWARE_IMAGE_AUTHENTICATION *)Image, ImageSize, &DependenciesSize, &LastAttemptStatus);
 
   //
   // No functional error in CheckTheImage.  Attempt to get the Version to
   // support better error reporting.
   //
-  FmpHeader = GetFmpHeader ( (EFI_FIRMWARE_IMAGE_AUTHENTICATION *)Image, ImageSize, &FmpPayloadSize );
+  FmpHeader = GetFmpHeader ( (EFI_FIRMWARE_IMAGE_AUTHENTICATION *)Image, ImageSize, DependenciesSize, &FmpPayloadSize );
   if (FmpHeader == NULL) {
     DEBUG ((DEBUG_ERROR, "FmpDxe(%s): SetTheImage() - GetFmpHeader failed.\n", mImageIdName));
+    LastAttemptStatus = LAST_ATTEMPT_STATUS_DRIVER_ERROR_GET_FMP_HEADER;
     Status = EFI_ABORTED;
     goto cleanup;
   }
   Status = GetFmpPayloadHeaderVersion (FmpHeader, FmpPayloadSize, &IncomingFwVersion);
-  if (EFI_ERROR (Status)) {
-    //
-    // Check if there is dependency expression
-    //
-    IsDepexValid = ValidateImageDepex ((EFI_FIRMWARE_IMAGE_DEP*) FmpHeader, FmpPayloadSize, &DependenciesSize);
-    if (IsDepexValid && (DependenciesSize < FmpPayloadSize)) {
-      //
-      // Fmp payload is after dependency expression
-      //
-      Dependencies = (EFI_FIRMWARE_IMAGE_DEP*) FmpHeader;
-      FmpHeader = (UINT8 *) FmpHeader + DependenciesSize;
-      FmpPayloadSize = FmpPayloadSize - DependenciesSize;
-      Status = GetFmpPayloadHeaderVersion (FmpHeader, FmpPayloadSize, &IncomingFwVersion);
-    }
-  }
   if (!EFI_ERROR (Status)) {
     //
     // Set to actual value
@@ -1218,10 +1249,8 @@ SetTheImage (
       "FmpDxe(%s): SetTheImage() - Check The Image returned that the Image was not valid for update.  Updatable value = 0x%X.\n",
       mImageIdName, Updateable)
       );
-    if (mDependenciesCheckStatus == DEPENDENCIES_UNSATISFIED) {
+    if (Private->DependenciesSatisfied == FALSE) {
       LastAttemptStatus = LAST_ATTEMPT_STATUS_ERROR_UNSATISFIED_DEPENDENCIES;
-    } else if (mDependenciesCheckStatus == DEPENDENCIES_INVALID) {
-      LastAttemptStatus = LAST_ATTEMPT_STATUS_ERROR_INVALID_FORMAT;
     }
     Status = EFI_ABORTED;
     goto cleanup;
@@ -1229,6 +1258,7 @@ SetTheImage (
 
   if (Progress == NULL) {
     DEBUG ((DEBUG_ERROR, "FmpDxe(%s): SetTheImage() - Invalid progress callback\n", mImageIdName));
+    LastAttemptStatus = LAST_ATTEMPT_STATUS_DRIVER_ERROR_PROGRESS_CALLBACK_ERROR;
     Status = EFI_INVALID_PARAMETER;
     goto cleanup;
   }
@@ -1249,6 +1279,7 @@ SetTheImage (
   Status = CheckSystemPower (&BooleanValue);
   if (EFI_ERROR (Status)) {
     DEBUG ((DEBUG_ERROR, "FmpDxe(%s): SetTheImage() - CheckSystemPower - API call failed %r.\n", mImageIdName, Status));
+    LastAttemptStatus = LAST_ATTEMPT_STATUS_DRIVER_ERROR_CHECK_POWER_API;
     goto cleanup;
   }
   if (!BooleanValue) {
@@ -1269,10 +1300,12 @@ SetTheImage (
   Status = CheckSystemThermal (&BooleanValue);
   if (EFI_ERROR (Status)) {
     DEBUG ((DEBUG_ERROR, "FmpDxe(%s): SetTheImage() - CheckSystemThermal - API call failed %r.\n", mImageIdName, Status));
+    LastAttemptStatus = LAST_ATTEMPT_STATUS_DRIVER_ERROR_CHECK_SYS_THERMAL_API;
     goto cleanup;
   }
   if (!BooleanValue) {
     Status = EFI_ABORTED;
+    LastAttemptStatus = LAST_ATTEMPT_STATUS_DRIVER_ERROR_THERMAL;
     DEBUG (
       (DEBUG_ERROR,
       "FmpDxe(%s): SetTheImage() - CheckSystemThermal - returned False.  Update not allowed due to System Thermal.\n", mImageIdName)
@@ -1288,10 +1321,12 @@ SetTheImage (
   Status = CheckSystemEnvironment (&BooleanValue);
   if (EFI_ERROR (Status)) {
     DEBUG ((DEBUG_ERROR, "FmpDxe(%s): SetTheImage() - CheckSystemEnvironment - API call failed %r.\n", mImageIdName, Status));
+    LastAttemptStatus = LAST_ATTEMPT_STATUS_DRIVER_ERROR_CHECK_SYS_ENV_API;
     goto cleanup;
   }
   if (!BooleanValue) {
     Status = EFI_ABORTED;
+    LastAttemptStatus = LAST_ATTEMPT_STATUS_DRIVER_ERROR_SYSTEM_ENV;
     DEBUG (
       (DEBUG_ERROR,
       "FmpDxe(%s): SetTheImage() - CheckSystemEnvironment - returned False.  Update not allowed due to System Environment.\n", mImageIdName)
@@ -1313,42 +1348,16 @@ SetTheImage (
   Status = GetFmpPayloadHeaderSize (FmpHeader, FmpPayloadSize, &FmpHeaderSize);
   if (EFI_ERROR (Status)) {
     DEBUG ((DEBUG_ERROR, "FmpDxe(%s): SetTheImage() - GetFmpPayloadHeaderSize failed %r.\n", mImageIdName, Status));
+    LastAttemptStatus = LAST_ATTEMPT_STATUS_DRIVER_ERROR_GET_FMP_HEADER_SIZE;
     goto cleanup;
   }
 
   AllHeaderSize = GetAllHeaderSize ((EFI_FIRMWARE_IMAGE_AUTHENTICATION *)Image, FmpHeaderSize + DependenciesSize);
   if (AllHeaderSize == 0) {
     DEBUG ((DEBUG_ERROR, "FmpDxe(%s): SetTheImage() - GetAllHeaderSize failed.\n", mImageIdName));
+    LastAttemptStatus = LAST_ATTEMPT_STATUS_DRIVER_ERROR_GET_ALL_HEADER_SIZE;
     Status = EFI_ABORTED;
     goto cleanup;
-  }
-
-  //
-  // Check the attribute IMAGE_ATTRIBUTE_DEPENDENCY
-  //
-  if (Private->Descriptor.AttributesSetting & IMAGE_ATTRIBUTE_DEPENDENCY) {
-    //
-    // To support saving dependency, extend param "Image" of FmpDeviceSetImage() to
-    // contain the dependency inside. FmpDeviceSetImage() is responsible for saving
-    // the dependency which can be used for future dependency check.
-    //
-    ImageBufferSize = DependenciesSize + ImageSize - AllHeaderSize;
-    ImageBuffer = AllocatePool (ImageBufferSize);
-    if (ImageBuffer == NULL) {
-      DEBUG ((DEBUG_ERROR, "FmpDxe(%s): SetTheImage() - AllocatePool failed.\n", mImageIdName));
-      Status = EFI_ABORTED;
-      goto cleanup;
-    }
-    CopyMem (ImageBuffer, Dependencies->Dependencies, DependenciesSize);
-    CopyMem (ImageBuffer + DependenciesSize, (UINT8 *)Image + AllHeaderSize, ImageBufferSize - DependenciesSize);
-  } else {
-    ImageBufferSize = ImageSize - AllHeaderSize;
-    ImageBuffer = AllocateCopyPool(ImageBufferSize, (UINT8 *)Image + AllHeaderSize);
-    if (ImageBuffer == NULL) {
-      DEBUG ((DEBUG_ERROR, "FmpDxe(%s): SetTheImage() - AllocatePool failed.\n", mImageIdName));
-      Status = EFI_ABORTED;
-      goto cleanup;
-    }
   }
 
   //
@@ -1359,19 +1368,46 @@ SetTheImage (
   //
   //Copy the requested image to the firmware using the FmpDeviceLib
   //
-  Status = FmpDeviceSetImage (
-             ImageBuffer,
-             ImageBufferSize,
+  Status = FmpDeviceSetImageWithStatus (
+             (((UINT8 *) Image) + AllHeaderSize),
+             ImageSize - AllHeaderSize,
              VendorCode,
              FmpDxeProgress,
              IncomingFwVersion,
-             AbortReason
+             AbortReason,
+             &LastAttemptStatus
              );
   if (EFI_ERROR (Status)) {
     DEBUG ((DEBUG_ERROR, "FmpDxe(%s): SetTheImage() SetImage from FmpDeviceLib failed. Status =  %r.\n", mImageIdName, Status));
+
+    //
+    // LastAttemptStatus returned from the device library should fall within the designated error range
+    // [LAST_ATTEMPT_STATUS_DEVICE_LIBRARY_MIN_ERROR_CODE_VALUE, LAST_ATTEMPT_STATUS_DEVICE_LIBRARY_MAX_ERROR_CODE_VALUE]
+    //
+    if ((LastAttemptStatus < LAST_ATTEMPT_STATUS_DEVICE_LIBRARY_MIN_ERROR_CODE_VALUE) ||
+        (LastAttemptStatus > LAST_ATTEMPT_STATUS_DEVICE_LIBRARY_MAX_ERROR_CODE_VALUE)) {
+      DEBUG (
+        (DEBUG_ERROR,
+        "FmpDxe(%s): SetTheImage() - LastAttemptStatus %d from FmpDeviceSetImageWithStatus() is invalid.\n",
+        mImageIdName,
+        LastAttemptStatus)
+        );
+      LastAttemptStatus = LAST_ATTEMPT_STATUS_ERROR_UNSUCCESSFUL;
+    }
+
     goto cleanup;
   }
 
+  //
+  // Store the dependency
+  //
+  if (Private->Descriptor.AttributesSetting & IMAGE_ATTRIBUTE_DEPENDENCY) {
+    Status = SaveFmpDependency (Dependencies, DependenciesSize);
+    if (EFI_ERROR (Status)) {
+      DEBUG ((DEBUG_ERROR, "FmpDxe(%s): SetTheImage() SaveFmpDependency from FmpDependencyCheckLib failed. (%r)\n", mImageIdName, Status));
+    }
+    Status = EFI_SUCCESS;
+  }
 
   //
   // Finished the update without error
@@ -1398,12 +1434,12 @@ SetTheImage (
   LastAttemptStatus = LAST_ATTEMPT_STATUS_SUCCESS;
 
 cleanup:
-  if (ImageBuffer != NULL) {
-    FreePool (ImageBuffer);
-  }
-
   mProgressFunc = NULL;
-  SetLastAttemptStatusInVariable (Private, LastAttemptStatus);
+
+  if (Private != NULL) {
+    DEBUG ((DEBUG_INFO, "FmpDxe(%s): SetTheImage() LastAttemptStatus: %u.\n", mImageIdName, LastAttemptStatus));
+    SetLastAttemptStatusInVariable (Private, LastAttemptStatus);
+  }
 
   if (Progress != NULL) {
     //
@@ -1416,7 +1452,9 @@ cleanup:
   // Need repopulate after SetImage is called to
   // update LastAttemptVersion and LastAttemptStatus.
   //
-  Private->DescriptorPopulated = FALSE;
+  if (Private != NULL) {
+    Private->DescriptorPopulated = FALSE;
+  }
 
   return Status;
 }
@@ -1529,6 +1567,11 @@ FmpDxeLockEventNotify (
 {
   EFI_STATUS                        Status;
   FIRMWARE_MANAGEMENT_PRIVATE_DATA  *Private;
+
+  if (Context == NULL) {
+    ASSERT (Context != NULL);
+    return;
+  }
 
   Private = (FIRMWARE_MANAGEMENT_PRIVATE_DATA *)Context;
 
@@ -1827,7 +1870,7 @@ FmpDxeEntryPoint (
     //
     // PcdFmpDeviceImageIdName must be set to a non-empty Unicode string
     //
-    DEBUG ((DEBUG_ERROR, "FmpDxe: PcdFmpDeviceImageIdName is an empty string.\n"));
+    DEBUG ((DEBUG_ERROR, "FmpDxe(%g): PcdFmpDeviceImageIdName is an empty string.\n", &gEfiCallerIdGuid));
     ASSERT (FALSE);
     return EFI_UNSUPPORTED;
   }

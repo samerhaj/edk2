@@ -4,13 +4,14 @@
 #
 # Copyright (c) 2008 - 2019, Intel Corporation. All rights reserved.<BR>
 # Portions copyright (c) 2011, Apple Inc. All rights reserved.
+# (C) Copyright 2020 Hewlett Packard Enterprise Development LP<BR>
 #
 #    SPDX-License-Identifier: BSD-2-Clause-Patent
 #
 ##
 
 [Defines]
-  DEC_VERSION                    = 0x00010005
+  DEC_SPECIFICATION              = 0x00010005
   PACKAGE_NAME                   = EmulatorPkg
   PACKAGE_GUID                   = 36E48BD7-7D92-5A47-A2CD-513F072E3300
   PACKAGE_VERSION                = 0.1
@@ -95,6 +96,13 @@
   gEmulatorPkgTokenSpaceGuid.PcdEmuGop|L"GOP Window"|VOID*|0x00001018
   gEmulatorPkgTokenSpaceGuid.PcdEmuFileSystem|L"."|VOID*|0x00001004
   gEmulatorPkgTokenSpaceGuid.PcdEmuSerialPort|L"/dev/ttyS0"|VOID*|0x00001002
+
+  #
+  # On Unix host, this is the network interface name on host system that will
+  #  be used in UEFI.
+  # On Win host, this is the network interface index number on Windows that
+  #  will be used in UEFI. For example, string L"0" is the first network
+  #  interface.
   gEmulatorPkgTokenSpaceGuid.PcdEmuNetworkInterface|L"en0"|VOID*|0x0000100d
 
   gEmulatorPkgTokenSpaceGuid.PcdEmuCpuModel|L"Intel(R) Processor Model"|VOID*|0x00001007

@@ -546,11 +546,11 @@ EndList
                 #DEFINE FSP_T_UPD_TOOL_GUID = 34686CA3-34F9-4901-B82A-BA630F0714C6
                 #DEFINE FSP_M_UPD_TOOL_GUID = 39A250DB-E465-4DD1-A2AC-E2BD3C0E2385
                 #DEFINE FSP_S_UPD_TOOL_GUID = CAE3605B-5B34-4C85-B3D7-27D54273C40F
-                Match = re.match("^\s*(?:DEFINE\s+)*(\w+)\s*=\s*([-.\w]+)", DscLine)
+                Match = re.match("^\s*(?:DEFINE\s+)*(\w+)\s*=\s*([/$()-.\w]+)", DscLine)
                 if Match:
-                    self._MacroDict[Match.group(1)] = Match.group(2)
+                    self._MacroDict[Match.group(1)] = self.ExpandMacros(Match.group(2))
                     if self.Debug:
-                        print ("INFO : DEFINE %s = [ %s ]" % (Match.group(1), Match.group(2)))
+                        print ("INFO : DEFINE %s = [ %s ]" % (Match.group(1), self.ExpandMacros(Match.group(2))))
             elif IsPcdSect:
                 #gSiPkgTokenSpaceGuid.PcdTxtEnable|FALSE
                 #gSiPkgTokenSpaceGuid.PcdOverclockEnable|TRUE
@@ -810,6 +810,17 @@ EndList
                 SubItem['value'] = valuestr
         return Error
 
+    def NoDscFileChange (self, OutPutFile):
+        NoFileChange = True
+        if not os.path.exists(OutPutFile):
+            NoFileChange = False
+        else:
+            DscTime = os.path.getmtime(self._DscFile)
+            OutputTime = os.path.getmtime(OutPutFile)
+            if DscTime > OutputTime:
+                NoFileChange = False
+        return NoFileChange
+
     def CreateSplitUpdTxt (self, UpdTxtFile):
         GuidList = ['FSP_T_UPD_TOOL_GUID','FSP_M_UPD_TOOL_GUID','FSP_S_UPD_TOOL_GUID']
         SignatureList = ['0x545F', '0x4D5F','0x535F']        #  _T, _M, and _S signature for FSPT, FSPM, FSPS
@@ -823,16 +834,7 @@ EndList
             if UpdTxtFile == '':
                 UpdTxtFile = os.path.join(FvDir, self._MacroDict[GuidList[Index]] + '.txt')
 
-            ReCreate = False
-            if not os.path.exists(UpdTxtFile):
-                ReCreate = True
-            else:
-                DscTime = os.path.getmtime(self._DscFile)
-                TxtTime = os.path.getmtime(UpdTxtFile)
-                if DscTime > TxtTime:
-                    ReCreate = True
-
-            if not  ReCreate:
+            if (self.NoDscFileChange (UpdTxtFile)):
                 # DSC has not been modified yet
                 # So don't have to re-generate other files
                 self.Error = 'No DSC file change, skip to create UPD TXT file'
@@ -1056,7 +1058,11 @@ EndList
         HeaderFile = os.path.join(FvDir, HeaderFileName)
 
         # Check if header needs to be recreated
-        ReCreate = False
+        if (self.NoDscFileChange (HeaderFile)):
+            # DSC has not been modified yet
+            # So don't have to re-generate other files
+            self.Error = 'No DSC file change, skip to create UPD header file'
+            return 256
 
         TxtBody = []
         for Item in self._CfgItemList:
@@ -1175,8 +1181,9 @@ EndList
         UpdRegionCheck = ['FSPT', 'FSPM', 'FSPS']     # FSPX_UPD_REGION
         UpdConfigCheck = ['FSP_T', 'FSP_M', 'FSP_S']  # FSP_X_CONFIG, FSP_X_TEST_CONFIG, FSP_X_RESTRICTED_CONFIG
         UpdSignatureCheck = ['FSPT_UPD_SIGNATURE', 'FSPM_UPD_SIGNATURE', 'FSPS_UPD_SIGNATURE']
-        ExcludedSpecificUpd = 'FSPM_ARCH_UPD'
+        ExcludedSpecificUpd = ['FSPT_ARCH_UPD', 'FSPM_ARCH_UPD', 'FSPS_ARCH_UPD']
 
+        IncLines = []
         if InputHeaderFile != '':
             if not os.path.exists(InputHeaderFile):
                  self.Error = "Input header file '%s' does not exist" % InputHeaderFile
@@ -1229,7 +1236,7 @@ EndList
                 if Match:
                     StartIndex = Index - 1
                 Match = re.match("}\s([_A-Z0-9]+);", Line)
-                if Match and (UpdRegionCheck[item] in Match.group(1) or UpdConfigCheck[item] in Match.group(1)) and (ExcludedSpecificUpd not in Match.group(1)):
+                if Match and (UpdRegionCheck[item] in Match.group(1) or UpdConfigCheck[item] in Match.group(1)) and (ExcludedSpecificUpd[item] not in Match.group(1)):
                     EndIndex = Index
                     StructStart.append(StartIndex)
                     StructEnd.append(EndIndex)
@@ -1381,6 +1388,12 @@ EndList
             self.Error = "BSF output file '%s' is invalid" % BsfFile
             return 1
 
+        if (self.NoDscFileChange (BsfFile)):
+            # DSC has not been modified yet
+            # So don't have to re-generate other files
+            self.Error = 'No DSC file change, skip to create UPD BSF file'
+            return 256
+
         Error = 0
         OptionDict = {}
         BsfFd      = open(BsfFile, "w")
@@ -1466,7 +1479,7 @@ EndList
 
 
 def Usage():
-    print ("GenCfgOpt Version 0.54")
+    print ("GenCfgOpt Version 0.56")
     print ("Usage:")
     print ("    GenCfgOpt  UPDTXT  PlatformDscFile BuildFvDir                 [-D Macros]")
     print ("    GenCfgOpt  HEADER  PlatformDscFile BuildFvDir  InputHFile     [-D Macros]")
@@ -1528,13 +1541,25 @@ def Main():
                     print ("ERROR: %s !" % (GenCfgOpt.Error))
             return Ret
         elif sys.argv[1] == "HEADER":
-            if GenCfgOpt.CreateHeaderFile(OutFile) != 0:
-                print ("ERROR: %s !" % GenCfgOpt.Error)
-                return 8
+            Ret = GenCfgOpt.CreateHeaderFile(OutFile)
+            if Ret != 0:
+                # No change is detected
+                if Ret == 256:
+                    print ("INFO: %s !" % (GenCfgOpt.Error))
+                else :
+                    print ("ERROR: %s !" % (GenCfgOpt.Error))
+                    return 8
+            return Ret
         elif sys.argv[1] == "GENBSF":
-            if GenCfgOpt.GenerateBsfFile(OutFile) != 0:
-                print ("ERROR: %s !" % GenCfgOpt.Error)
-                return 9
+            Ret = GenCfgOpt.GenerateBsfFile(OutFile)
+            if Ret != 0:
+                # No change is detected
+                if Ret == 256:
+                    print ("INFO: %s !" % (GenCfgOpt.Error))
+                else :
+                    print ("ERROR: %s !" % (GenCfgOpt.Error))
+                    return 9
+            return Ret
         else:
             if argc < 5:
                 Usage()

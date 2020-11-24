@@ -3,7 +3,7 @@
   image stored in a firmware device with platform and firmware device specific
   information provided through PCDs and libraries.
 
-  Copyright (c) 2016, Microsoft Corporation. All rights reserved.<BR>
+  Copyright (c) Microsoft Corporation.<BR>
   Copyright (c) 2018 - 2019, Intel Corporation. All rights reserved.<BR>
 
   SPDX-License-Identifier: BSD-2-Clause-Patent
@@ -28,11 +28,16 @@
 #include <Library/FmpDeviceLib.h>
 #include <Library/FmpPayloadHeaderLib.h>
 #include <Library/CapsuleUpdatePolicyLib.h>
+#include <Library/FmpDependencyLib.h>
+#include <Library/FmpDependencyCheckLib.h>
+#include <Library/FmpDependencyDeviceLib.h>
 #include <Protocol/FirmwareManagement.h>
 #include <Protocol/FirmwareManagementProgress.h>
 #include <Protocol/VariableLock.h>
 #include <Guid/SystemResourceTable.h>
 #include <Guid/EventGroup.h>
+#include <LastAttemptStatus.h>
+#include <FmpLastAttemptStatus.h>
 
 #define VERSION_STRING_NOT_SUPPORTED  L"VERSION STRING NOT SUPPORTED"
 #define VERSION_STRING_NOT_AVAILABLE  L"VERSION STRING NOT AVAILABLE"
@@ -66,6 +71,7 @@ typedef struct {
   CHAR16                                       *LastAttemptStatusVariableName;
   CHAR16                                       *LastAttemptVersionVariableName;
   CHAR16                                       *FmpStateVariableName;
+  BOOLEAN                                      DependenciesSatisfied;
 } FIRMWARE_MANAGEMENT_PRIVATE_DATA;
 
 ///
