@@ -862,17 +862,17 @@ typedef struct {
 } PROCESSOR_FEATURE_FLAGS;
 
 typedef struct {
-  UINT16  ProcessorReserved1             :1;
-  UINT16  ProcessorUnknown               :1;
-  UINT16  Processor64BitCapble           :1;
-  UINT16  ProcessorMultiCore             :1;
-  UINT16  ProcessorHardwareThread        :1;
-  UINT16  ProcessorExecuteProtection     :1;
-  UINT16  ProcessorEnhancedVirtulization :1;
-  UINT16  ProcessorPowerPerformanceCtrl  :1;
-  UINT16  Processor128bitCapble          :1;
-  UINT16  ProcessorArm64SocId            :1;
-  UINT16  ProcessorReserved2             :6;
+  UINT16  ProcessorReserved1              :1;
+  UINT16  ProcessorUnknown                :1;
+  UINT16  Processor64BitCapable           :1;
+  UINT16  ProcessorMultiCore              :1;
+  UINT16  ProcessorHardwareThread         :1;
+  UINT16  ProcessorExecuteProtection      :1;
+  UINT16  ProcessorEnhancedVirtualization :1;
+  UINT16  ProcessorPowerPerformanceCtrl   :1;
+  UINT16  Processor128BitCapable          :1;
+  UINT16  ProcessorArm64SocId             :1;
+  UINT16  ProcessorReserved2              :6;
 } PROCESSOR_CHARACTERISTIC_FLAGS;
 
 typedef struct {
@@ -894,7 +894,7 @@ typedef struct {
   SMBIOS_TABLE_STRING   Socket;
   UINT8                 ProcessorType;          ///< The enumeration value from PROCESSOR_TYPE_DATA.
   UINT8                 ProcessorFamily;        ///< The enumeration value from PROCESSOR_FAMILY_DATA.
-  SMBIOS_TABLE_STRING   ProcessorManufacture;
+  SMBIOS_TABLE_STRING   ProcessorManufacturer;
   PROCESSOR_ID_DATA     ProcessorId;
   SMBIOS_TABLE_STRING   ProcessorVersion;
   PROCESSOR_VOLTAGE     Voltage;
@@ -1837,7 +1837,7 @@ typedef struct {
   //
   UINT8                                     MemoryTechnology;   ///< The enumeration value from MEMORY_DEVICE_TECHNOLOGY
   MEMORY_DEVICE_OPERATING_MODE_CAPABILITY   MemoryOperatingModeCapability;
-  SMBIOS_TABLE_STRING                       FirwareVersion;
+  SMBIOS_TABLE_STRING                       FirmwareVersion;
   UINT16                                    ModuleManufacturerID;
   UINT16                                    ModuleProductID;
   UINT16                                    MemorySubsystemControllerManufacturerID;

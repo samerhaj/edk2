@@ -427,7 +427,7 @@ SmbiosPrintStructure (
     } else {
       DisplayProcessorFamily (Struct->Type4->ProcessorFamily, Option);
     }
-    PRINT_PENDING_STRING (Struct, Type4, ProcessorManufacture);
+    PRINT_PENDING_STRING (Struct, Type4, ProcessorManufacturer);
     PRINT_BIT_FIELD (Struct, Type4, ProcessorId, 8);
     PRINT_PENDING_STRING (Struct, Type4, ProcessorVersion);
     DisplayProcessorVoltage (*(UINT8 *) &(Struct->Type4->Voltage), Option);
@@ -776,7 +776,7 @@ SmbiosPrintStructure (
       if (Struct->Hdr->Length > 0x28) {
         DisplayMemoryDeviceMemoryTechnology (Struct->Type17->MemoryTechnology, Option);
         DisplayMemoryDeviceMemoryOperatingModeCapability (Struct->Type17->MemoryOperatingModeCapability.Uint16, Option);
-        PRINT_PENDING_STRING (Struct, Type17, FirwareVersion);
+        PRINT_PENDING_STRING (Struct, Type17, FirmwareVersion);
         PRINT_STRUCT_VALUE_H (Struct, Type17, ModuleManufacturerID);
         PRINT_STRUCT_VALUE_H (Struct, Type17, ModuleProductID);
         PRINT_STRUCT_VALUE_H (Struct, Type17, MemorySubsystemControllerManufacturerID);

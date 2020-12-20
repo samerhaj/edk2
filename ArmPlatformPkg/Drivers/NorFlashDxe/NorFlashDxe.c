@@ -1,6 +1,6 @@
 /** @file  NorFlashDxe.c
 
-  Copyright (c) 2011 - 2014, ARM Ltd. All rights reserved.<BR>
+  Copyright (c) 2011 - 2020, Arm Limited. All rights reserved.<BR>
 
   SPDX-License-Identifier: BSD-2-Clause-Patent
 
@@ -259,7 +259,7 @@ NorFlashUnlockSingleBlockIfNecessary (
 
   Status = EFI_SUCCESS;
 
-  if (NorFlashBlockIsLocked (Instance, BlockAddress) == TRUE) {
+  if (NorFlashBlockIsLocked (Instance, BlockAddress)) {
     Status = NorFlashUnlockSingleBlock (Instance, BlockAddress);
   }
 
@@ -676,11 +676,13 @@ NorFlashWriteBlocks (
   )
 {
   UINT32          *pWriteBuffer;
-  EFI_STATUS      Status = EFI_SUCCESS;
+  EFI_STATUS      Status;
   EFI_LBA         CurrentBlock;
   UINT32          BlockSizeInWords;
   UINT32          NumBlocks;
   UINT32          BlockCount;
+
+  Status = EFI_SUCCESS;
 
   // The buffer must be valid
   if (Buffer == NULL) {
