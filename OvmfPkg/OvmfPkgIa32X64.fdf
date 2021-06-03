@@ -162,6 +162,7 @@ INF  OvmfPkg/SmmAccess/SmmAccessPei.inf
 INF  UefiCpuPkg/CpuMpPei/CpuMpPei.inf
 
 !if $(TPM_ENABLE) == TRUE
+INF  OvmfPkg/Tcg/TpmMmioSevDecryptPei/TpmMmioSevDecryptPei.inf
 INF  OvmfPkg/Tcg/Tcg2Config/Tcg2ConfigPei.inf
 INF  SecurityPkg/Tcg/TcgPei/TcgPei.inf
 INF  SecurityPkg/Tcg/Tcg2Pei/Tcg2Pei.inf
@@ -291,6 +292,7 @@ INF  MdeModulePkg/Universal/Acpi/BootGraphicsResourceTableDxe/BootGraphicsResour
 
 INF  FatPkg/EnhancedFatDxe/Fat.inf
 INF  MdeModulePkg/Universal/Disk/UdfDxe/UdfDxe.inf
+INF  OvmfPkg/VirtioFsDxe/VirtioFsDxe.inf
 
 !if $(TOOL_CHAIN_TAG) != "XCODE5"
 INF  ShellPkg/DynamicCommand/TftpDynamicCommand/TftpDynamicCommand.inf

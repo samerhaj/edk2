@@ -33,6 +33,8 @@
   gArmTokenSpaceGuid.PcdFdBaseAddress|0x0
   gArmTokenSpaceGuid.PcdFdSize|0x1000
 
+!include MdePkg/MdeLibs.dsc.inc
+
 [LibraryClasses.common]
   ArmGicArchLib|ArmPkg/Library/ArmGicArchSecLib/ArmGicArchSecLib.inf
   ArmGicLib|ArmPkg/Drivers/ArmGic/ArmGicLib.inf
@@ -90,6 +92,12 @@
   MemoryAllocationLib|EmbeddedPkg/Library/PrePiMemoryAllocationLib/PrePiMemoryAllocationLib.inf
   PrePiHobListPointerLib|ArmPlatformPkg/Library/PrePiHobListPointerLib/PrePiHobListPointerLib.inf
 
+[LibraryClasses.AARCH64.MM_STANDALONE]
+  HobLib|StandaloneMmPkg/Library/StandaloneMmHobLib/StandaloneMmHobLib.inf
+  MemoryAllocationLib|StandaloneMmPkg/Library/StandaloneMmMemoryAllocationLib/StandaloneMmMemoryAllocationLib.inf
+  MmServicesTableLib|MdePkg/Library/StandaloneMmServicesTableLib/StandaloneMmServicesTableLib.inf
+  StandaloneMmDriverEntryPoint|MdePkg/Library/StandaloneMmDriverEntryPoint/StandaloneMmDriverEntryPoint.inf
+
 [Components.common]
   ArmPlatformPkg/Drivers/LcdGraphicsOutputDxe/LcdGraphicsOutputDxe.inf
   ArmPlatformPkg/Drivers/NorFlashDxe/NorFlashDxe.inf
@@ -122,3 +130,6 @@
   ArmPlatformPkg/PrePi/PeiUniCore.inf
 
   ArmPlatformPkg/Library/ArmMaliDp/ArmMaliDp.inf
+
+[Components.AARCH64]
+  ArmPlatformPkg/Drivers/NorFlashDxe/NorFlashStandaloneMm.inf

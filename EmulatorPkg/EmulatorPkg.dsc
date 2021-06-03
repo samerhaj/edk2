@@ -4,7 +4,7 @@
 # The Emulation Platform can be used to debug individual modules, prior to creating
 # a real platform. This also provides an example for how an DSC is created.
 #
-# Copyright (c) 2006 - 2020, Intel Corporation. All rights reserved.<BR>
+# Copyright (c) 2006 - 2021, Intel Corporation. All rights reserved.<BR>
 # Portions copyright (c) 2010 - 2011, Apple Inc. All rights reserved.<BR>
 # Copyright (c) Microsoft Corporation.
 #
@@ -43,6 +43,8 @@
 
 [SkuIds]
   0|DEFAULT
+
+!include MdePkg/MdeLibs.dsc.inc
 
 [LibraryClasses]
   #
@@ -104,6 +106,7 @@
   KeyMapLib|EmulatorPkg/Library/KeyMapLibNull/KeyMapLibNull.inf
   !if $(REDFISH_ENABLE) == TRUE
     RedfishPlatformHostInterfaceLib|EmulatorPkg/Library/RedfishPlatformHostInterfaceLib/RedfishPlatformHostInterfaceLib.inf
+    RedfishPlatformCredentialLib|EmulatorPkg/Library/RedfishPlatformCredentialLib/RedfishPlatformCredentialLib.inf
   !endif
   #
   # Misc
@@ -453,6 +456,7 @@
       NULL|ShellPkg/Library/UefiShellInstall1CommandsLib/UefiShellInstall1CommandsLib.inf
       NULL|ShellPkg/Library/UefiShellNetwork1CommandsLib/UefiShellNetwork1CommandsLib.inf
       HandleParsingLib|ShellPkg/Library/UefiHandleParsingLib/UefiHandleParsingLib.inf
+      OrderedCollectionLib|MdePkg/Library/BaseOrderedCollectionRedBlackTreeLib/BaseOrderedCollectionRedBlackTreeLib.inf
       SortLib|MdeModulePkg/Library/UefiSortLib/UefiSortLib.inf
       PrintLib|MdePkg/Library/BasePrintLib/BasePrintLib.inf
 #      SafeBlockIoLib|ShellPkg/Library/SafeBlockIoLib/SafeBlockIoLib.inf

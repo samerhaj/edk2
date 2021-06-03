@@ -27,12 +27,14 @@
   AcpiView.h
   AcpiViewConfig.c
   AcpiViewConfig.h
+  Parsers/Aest/AestParser.c
   Parsers/Bgrt/BgrtParser.c
   Parsers/Dbg2/Dbg2Parser.c
   Parsers/Dsdt/DsdtParser.c
   Parsers/Facs/FacsParser.c
   Parsers/Fadt/FadtParser.c
   Parsers/Gtdt/GtdtParser.c
+  Parsers/Hmat/HmatParser.c
   Parsers/Iort/IortParser.c
   Parsers/Madt/MadtParser.c
   Parsers/Madt/MadtParser.h

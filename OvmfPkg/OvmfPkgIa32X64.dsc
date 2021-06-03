@@ -1,7 +1,7 @@
 ## @file
 #  EFI/Framework Open Virtual Machine Firmware (OVMF) platform
 #
-#  Copyright (c) 2006 - 2020, Intel Corporation. All rights reserved.<BR>
+#  Copyright (c) 2006 - 2021, Intel Corporation. All rights reserved.<BR>
 #  (C) Copyright 2016 Hewlett Packard Enterprise Development LP<BR>
 #  Copyright (c) Microsoft Corporation.
 #
@@ -84,6 +84,7 @@
   GCC:*_*_X64_GENFW_FLAGS   = --keepexceptiontable
   INTEL:*_*_X64_GENFW_FLAGS = --keepexceptiontable
 !endif
+  RELEASE_*_*_GENFW_FLAGS = --zero
 
   #
   # Disable deprecated APIs.
@@ -121,6 +122,9 @@
 # Library Class section - list of all Library Classes needed by this Platform.
 #
 ################################################################################
+
+!include MdePkg/MdeLibs.dsc.inc
+
 [LibraryClasses]
   PcdLib|MdePkg/Library/BasePcdLibNull/BasePcdLibNull.inf
   TimerLib|OvmfPkg/Library/AcpiTimerLib/BaseAcpiTimerLib.inf
@@ -129,6 +133,7 @@
   BaseMemoryLib|MdePkg/Library/BaseMemoryLibRepStr/BaseMemoryLibRepStr.inf
   BaseLib|MdePkg/Library/BaseLib/BaseLib.inf
   SafeIntLib|MdePkg/Library/BaseSafeIntLib/BaseSafeIntLib.inf
+  TimeBaseLib|EmbeddedPkg/Library/TimeBaseLib/TimeBaseLib.inf
   BmpSupportLib|MdeModulePkg/Library/BaseBmpSupportLib/BaseBmpSupportLib.inf
   SynchronizationLib|MdePkg/Library/BaseSynchronizationLib/BaseSynchronizationLib.inf
   CpuLib|MdePkg/Library/BaseCpuLib/BaseCpuLib.inf
@@ -157,6 +162,7 @@
   OemHookStatusCodeLib|MdeModulePkg/Library/OemHookStatusCodeLibNull/OemHookStatusCodeLibNull.inf
   SerialPortLib|PcAtChipsetPkg/Library/SerialIoLib/SerialIoLib.inf
   MtrrLib|UefiCpuPkg/Library/MtrrLib/MtrrLib.inf
+  MicrocodeLib|UefiCpuPkg/Library/MicrocodeLib/MicrocodeLib.inf
   UefiLib|MdePkg/Library/UefiLib/UefiLib.inf
   UefiBootServicesTableLib|MdePkg/Library/UefiBootServicesTableLib/UefiBootServicesTableLib.inf
   UefiRuntimeServicesTableLib|MdePkg/Library/UefiRuntimeServicesTableLib/UefiRuntimeServicesTableLib.inf
@@ -173,7 +179,7 @@
   QemuFwCfgSimpleParserLib|OvmfPkg/Library/QemuFwCfgSimpleParserLib/QemuFwCfgSimpleParserLib.inf
   VirtioLib|OvmfPkg/Library/VirtioLib/VirtioLib.inf
   LoadLinuxLib|OvmfPkg/Library/LoadLinuxLib/LoadLinuxLib.inf
-  MemEncryptSevLib|OvmfPkg/Library/BaseMemEncryptSevLib/BaseMemEncryptSevLib.inf
+  MemEncryptSevLib|OvmfPkg/Library/BaseMemEncryptSevLib/DxeMemEncryptSevLib.inf
 !if $(SMM_REQUIRE) == FALSE
   LockBoxLib|OvmfPkg/Library/LockBoxLib/LockBoxBaseLib.inf
 !endif
@@ -313,6 +319,8 @@
   Tpm2DeviceLib|SecurityPkg/Library/Tpm2DeviceLibDTpm/Tpm2DeviceLibDTpm.inf
 !endif
 
+  MemEncryptSevLib|OvmfPkg/Library/BaseMemEncryptSevLib/PeiMemEncryptSevLib.inf
+
 [LibraryClasses.common.DXE_CORE]
   HobLib|MdePkg/Library/DxeCoreHobLib/DxeCoreHobLib.inf
   DxeCoreEntryPoint|MdePkg/Library/DxeCoreEntryPoint/DxeCoreEntryPoint.inf
@@ -348,6 +356,9 @@
   PciLib|OvmfPkg/Library/DxePciLibI440FxQ35/DxePciLibI440FxQ35.inf
   QemuFwCfgS3Lib|OvmfPkg/Library/QemuFwCfgS3Lib/DxeQemuFwCfgS3LibFwCfg.inf
   VariablePolicyLib|MdeModulePkg/Library/VariablePolicyLib/VariablePolicyLibRuntimeDxe.inf
+!if $(SMM_REQUIRE) == TRUE
+  MmUnblockMemoryLib|MdePkg/Library/MmUnblockMemoryLib/MmUnblockMemoryLibNull.inf
+!endif
 
 [LibraryClasses.common.UEFI_DRIVER]
   PcdLib|MdePkg/Library/DxePcdLib/DxePcdLib.inf
@@ -479,6 +490,7 @@
   gEfiMdeModulePkgTokenSpaceGuid.PcdResetOnMemoryTypeInformationChange|FALSE
 !endif
   gEfiMdePkgTokenSpaceGuid.PcdMaximumGuidedExtractHandler|0x10
+  gEfiMdePkgTokenSpaceGuid.PcdMaximumLinkedListLength|0
 !if ($(FD_SIZE_IN_KB) == 1024) || ($(FD_SIZE_IN_KB) == 2048)
   gEfiMdeModulePkgTokenSpaceGuid.PcdMaxVariableSize|0x2000
   gEfiMdeModulePkgTokenSpaceGuid.PcdMaxAuthVariableSize|0x2800
@@ -564,6 +576,8 @@
   # Network Pcds
   #
 !include NetworkPkg/NetworkPcds.dsc.inc
+
+  gEfiShellPkgTokenSpaceGuid.PcdShellFileOperationSize|0x20000
 
 !if $(SMM_REQUIRE) == TRUE
   gUefiCpuPkgTokenSpaceGuid.PcdCpuSmmStackSize|0x4000
@@ -705,6 +719,7 @@
   UefiCpuPkg/CpuMpPei/CpuMpPei.inf
 
 !if $(TPM_ENABLE) == TRUE
+  OvmfPkg/Tcg/TpmMmioSevDecryptPei/TpmMmioSevDecryptPei.inf
   OvmfPkg/Tcg/Tcg2Config/Tcg2ConfigPei.inf
   SecurityPkg/Tcg/TcgPei/TcgPei.inf
   SecurityPkg/Tcg/Tcg2Pei/Tcg2Pei.inf {
@@ -758,6 +773,7 @@
   MdeModulePkg/Bus/Pci/PciHostBridgeDxe/PciHostBridgeDxe.inf {
     <LibraryClasses>
       PciHostBridgeLib|OvmfPkg/Library/PciHostBridgeLib/PciHostBridgeLib.inf
+      PciHostBridgeUtilityLib|OvmfPkg/Library/PciHostBridgeUtilityLib/PciHostBridgeUtilityLib.inf
       NULL|OvmfPkg/Library/PlatformHasIoMmuLib/PlatformHasIoMmuLib.inf
   }
   MdeModulePkg/Bus/Pci/PciBusDxe/PciBusDxe.inf {
@@ -826,6 +842,7 @@
   MdeModulePkg/Universal/Disk/UnicodeCollation/EnglishDxe/EnglishDxe.inf
   FatPkg/EnhancedFatDxe/Fat.inf
   MdeModulePkg/Universal/Disk/UdfDxe/UdfDxe.inf
+  OvmfPkg/VirtioFsDxe/VirtioFsDxe.inf
   MdeModulePkg/Bus/Scsi/ScsiBusDxe/ScsiBusDxe.inf
   MdeModulePkg/Bus/Scsi/ScsiDiskDxe/ScsiDiskDxe.inf
   OvmfPkg/SataControllerDxe/SataControllerDxe.inf

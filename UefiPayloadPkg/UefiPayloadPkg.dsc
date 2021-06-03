@@ -3,7 +3,7 @@
 #
 # Provides drivers and definitions to create uefi payload for bootloaders.
 #
-# Copyright (c) 2014 - 2020, Intel Corporation. All rights reserved.<BR>
+# Copyright (c) 2014 - 2021, Intel Corporation. All rights reserved.<BR>
 # Copyright (c) Microsoft Corporation.
 # SPDX-License-Identifier: BSD-2-Clause-Patent
 #
@@ -113,6 +113,9 @@
 # Library Class section - list of all Library Classes needed by this Platform.
 #
 ################################################################################
+
+!include MdePkg/MdeLibs.dsc.inc
+
 [LibraryClasses]
   #
   # Entry point
@@ -177,6 +180,7 @@
   #
   MtrrLib|UefiCpuPkg/Library/MtrrLib/MtrrLib.inf
   LocalApicLib|UefiCpuPkg/Library/BaseXApicX2ApicLib/BaseXApicX2ApicLib.inf
+  MicrocodeLib|UefiCpuPkg/Library/MicrocodeLib/MicrocodeLib.inf
 
   #
   # Platform
@@ -456,6 +460,7 @@
   MdeModulePkg/Bus/Ata/AtaAtapiPassThru/AtaAtapiPassThru.inf
   MdeModulePkg/Bus/Scsi/ScsiBusDxe/ScsiBusDxe.inf
   MdeModulePkg/Bus/Scsi/ScsiDiskDxe/ScsiDiskDxe.inf
+  MdeModulePkg/Bus/Pci/NvmExpressDxe/NvmExpressDxe.inf
 
   #
   # SD/eMMC Support
@@ -556,6 +561,7 @@
       DebugLib|MdePkg/Library/UefiDebugLibConOut/UefiDebugLibConOut.inf
       DevicePathLib|MdePkg/Library/UefiDevicePathLib/UefiDevicePathLib.inf
       HandleParsingLib|ShellPkg/Library/UefiHandleParsingLib/UefiHandleParsingLib.inf
+      OrderedCollectionLib|MdePkg/Library/BaseOrderedCollectionRedBlackTreeLib/BaseOrderedCollectionRedBlackTreeLib.inf
       PcdLib|MdePkg/Library/DxePcdLib/DxePcdLib.inf
       ShellCEntryLib|ShellPkg/Library/UefiShellCEntryLib/UefiShellCEntryLib.inf
       ShellCommandLib|ShellPkg/Library/UefiShellCommandLib/UefiShellCommandLib.inf

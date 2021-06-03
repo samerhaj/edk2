@@ -3,7 +3,7 @@
 #  virtual machine remote attestation and secret injection
 #
 #  Copyright (c) 2020 James Bottomley, IBM Corporation.
-#  Copyright (c) 2006 - 2020, Intel Corporation. All rights reserved.<BR>
+#  Copyright (c) 2006 - 2021, Intel Corporation. All rights reserved.<BR>
 #  (C) Copyright 2016 Hewlett Packard Enterprise Development LP<BR>
 #
 #  SPDX-License-Identifier: BSD-2-Clause-Patent
@@ -78,6 +78,7 @@
   GCC:*_*_X64_GENFW_FLAGS   = --keepexceptiontable
   INTEL:*_*_X64_GENFW_FLAGS = --keepexceptiontable
 !endif
+  RELEASE_*_*_GENFW_FLAGS = --zero
 
   #
   # Disable deprecated APIs.
@@ -113,6 +114,9 @@
 # Library Class section - list of all Library Classes needed by this Platform.
 #
 ################################################################################
+
+!include MdePkg/MdeLibs.dsc.inc
+
 [LibraryClasses]
   PcdLib|MdePkg/Library/BasePcdLibNull/BasePcdLibNull.inf
   TimerLib|OvmfPkg/Library/AcpiTimerLib/BaseAcpiTimerLib.inf
@@ -149,6 +153,7 @@
   OemHookStatusCodeLib|MdeModulePkg/Library/OemHookStatusCodeLibNull/OemHookStatusCodeLibNull.inf
   SerialPortLib|PcAtChipsetPkg/Library/SerialIoLib/SerialIoLib.inf
   MtrrLib|UefiCpuPkg/Library/MtrrLib/MtrrLib.inf
+  MicrocodeLib|UefiCpuPkg/Library/MicrocodeLib/MicrocodeLib.inf
   UefiLib|MdePkg/Library/UefiLib/UefiLib.inf
   UefiBootServicesTableLib|MdePkg/Library/UefiBootServicesTableLib/UefiBootServicesTableLib.inf
   UefiRuntimeServicesTableLib|MdePkg/Library/UefiRuntimeServicesTableLib/UefiRuntimeServicesTableLib.inf
@@ -164,7 +169,7 @@
   QemuFwCfgSimpleParserLib|OvmfPkg/Library/QemuFwCfgSimpleParserLib/QemuFwCfgSimpleParserLib.inf
   VirtioLib|OvmfPkg/Library/VirtioLib/VirtioLib.inf
   LoadLinuxLib|OvmfPkg/Library/LoadLinuxLib/LoadLinuxLib.inf
-  MemEncryptSevLib|OvmfPkg/Library/BaseMemEncryptSevLib/BaseMemEncryptSevLib.inf
+  MemEncryptSevLib|OvmfPkg/Library/BaseMemEncryptSevLib/DxeMemEncryptSevLib.inf
   LockBoxLib|OvmfPkg/Library/LockBoxLib/LockBoxBaseLib.inf
   CustomizedDisplayLib|MdeModulePkg/Library/CustomizedDisplayLib/CustomizedDisplayLib.inf
   FrameBufferBltLib|MdeModulePkg/Library/FrameBufferBltLib/FrameBufferBltLib.inf
@@ -236,6 +241,8 @@
 !else
   CpuExceptionHandlerLib|UefiCpuPkg/Library/CpuExceptionHandlerLib/SecPeiCpuExceptionHandlerLib.inf
 !endif
+  VmgExitLib|OvmfPkg/Library/VmgExitLib/SecVmgExitLib.inf
+  MemEncryptSevLib|OvmfPkg/Library/BaseMemEncryptSevLib/SecMemEncryptSevLib.inf
 
 [LibraryClasses.common.PEI_CORE]
   HobLib|MdePkg/Library/PeiHobLib/PeiHobLib.inf
@@ -284,6 +291,8 @@
   Tpm12DeviceLib|SecurityPkg/Library/Tpm12DeviceLibDTpm/Tpm12DeviceLibDTpm.inf
   Tpm2DeviceLib|SecurityPkg/Library/Tpm2DeviceLibDTpm/Tpm2DeviceLibDTpm.inf
 !endif
+
+  MemEncryptSevLib|OvmfPkg/Library/BaseMemEncryptSevLib/PeiMemEncryptSevLib.inf
 
 [LibraryClasses.common.DXE_CORE]
   HobLib|MdePkg/Library/DxeCoreHobLib/DxeCoreHobLib.inf
@@ -437,6 +446,7 @@
   gEfiMdeModulePkgTokenSpaceGuid.PcdStatusCodeMemorySize|1
   gEfiMdeModulePkgTokenSpaceGuid.PcdResetOnMemoryTypeInformationChange|FALSE
   gEfiMdePkgTokenSpaceGuid.PcdMaximumGuidedExtractHandler|0x10
+  gEfiMdePkgTokenSpaceGuid.PcdMaximumLinkedListLength|0
 !if ($(FD_SIZE_IN_KB) == 1024) || ($(FD_SIZE_IN_KB) == 2048)
   gEfiMdeModulePkgTokenSpaceGuid.PcdMaxVariableSize|0x2000
   gEfiMdeModulePkgTokenSpaceGuid.PcdMaxAuthVariableSize|0x2800
@@ -616,6 +626,7 @@
   OvmfPkg/AmdSev/SecretPei/SecretPei.inf
 
 !if $(TPM_ENABLE) == TRUE
+  OvmfPkg/Tcg/TpmMmioSevDecryptPei/TpmMmioSevDecryptPei.inf
   OvmfPkg/Tcg/Tcg2Config/Tcg2ConfigPei.inf
   SecurityPkg/Tcg/TcgPei/TcgPei.inf
   SecurityPkg/Tcg/Tcg2Pei/Tcg2Pei.inf {
@@ -665,6 +676,7 @@
   MdeModulePkg/Bus/Pci/PciHostBridgeDxe/PciHostBridgeDxe.inf {
     <LibraryClasses>
       PciHostBridgeLib|OvmfPkg/Library/PciHostBridgeLib/PciHostBridgeLib.inf
+      PciHostBridgeUtilityLib|OvmfPkg/Library/PciHostBridgeUtilityLib/PciHostBridgeUtilityLib.inf
       NULL|OvmfPkg/Library/PlatformHasIoMmuLib/PlatformHasIoMmuLib.inf
   }
   MdeModulePkg/Bus/Pci/PciBusDxe/PciBusDxe.inf {
